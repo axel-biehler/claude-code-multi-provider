@@ -18,7 +18,7 @@ bounded implementation subtasks to other AI engines** through a single MCP "dele
 Priority order for execution engines:
 
 1. **Claude Team** subscription (the orchestrator — never delegated away)
-2. **Existing authenticated CLIs** (Codex CLI, Antigravity CLI, …) on their own subscriptions
+2. **Existing authenticated CLIs** (Codex CLI, Claude CLI, Antigravity CLI) on their own subscriptions
 3. **Paid APIs** — last resort only
 
 Claude decides *when* to delegate; the delegate layer decides *which backend* executes and returns
@@ -49,7 +49,7 @@ only a distilled result. Claude never loses control of the reasoning process.
 point:
 
 - Claude Code can invoke MCP tools (from the main agent **and** from subagents).
-- An MCP server is just a program → it can spawn authenticated CLIs (`codex exec`, `claude -p`, …)
+- An MCP server is just a program → it can spawn authenticated CLIs (`codex exec`, `claude -p`, `agy -p`)
   as subprocesses and reuse their stored credentials.
 - Git worktrees give clean per-task isolation and reviewable diffs for merge-back.
 - Multiple delegations can run in parallel via an async job pattern.
@@ -67,8 +67,8 @@ architectural**.
 | **B** | **The consumer/subscription Gemini CLI was retired 2026-06-18.** No free Google-account tier or AI Pro/Ultra auth through it. Successor is **Antigravity CLI (`agy`)**; legacy Gemini CLI now needs a paid API key or Vertex/Code-Assist (enterprise). | A "Gemini" tier becomes **Antigravity CLI** (`agy -p`, Google-account OAuth, JSON still stabilizing) or a paid Gemini API key. Treat as the newest/least-stable worker — not a v1 anchor. |
 | **C** | **MCP tool calls default to a ~60s timeout.** `MCP_TOOL_TIMEOUT` can raise it but is an *idle-between-progress* timer with open reliability bugs. Real coding tasks take **minutes**. | A synchronous "block until the CLI finishes" tool is fragile. Use the **async job/handle pattern**: `delegate_task` returns a `job_id` instantly; Claude polls. This one decision also solves parallelism and context bloat. |
 
-**Net:** the two rock-solid subscription workers today are **`codex exec`** (ChatGPT plan) and
-**`claude -p`** (your own Claude seat). Antigravity is a viable third. Paid APIs (via LiteLLM) are
+**Net:** the three shipped subscription workers are **`codex exec`** (ChatGPT plan),
+**`claude -p`** (your own Claude seat), and **`agy -p`** (Antigravity). Paid APIs (via LiteLLM) are
 the genuine last resort — exactly the original priority order, with corrected engines.
 
 ---
@@ -112,7 +112,8 @@ the genuine last resort — exactly the original priority order, with corrected 
   routing *other users'* requests through your Pro/Max/Team credentials; multi-tenant fan-out on one
   seat. (OpenCode had to remove bundled Claude subscription support for exactly this reason.)
 - ⚠️ **Operational caution:** subscription rate windows are **shared across surfaces**. A heavy
-  automated `codex exec` loop competes with your interactive Codex/Claude usage and can exhaust the
+  automated worker loop competes with your interactive Codex, Claude, and Antigravity usage and
+  can exhaust the
   5-hour / weekly caps. Mitigate with a quota ledger, backoff, and budget caps.
 
 ---
@@ -240,9 +241,9 @@ context optimizer.
 | **ToS** — reusing Claude token outside first-party binary; multi-tenant on one seat | 🔴 High | Only spawn the real `claude -p`; single-user + local; never export the OAuth token |
 | Automated delegation **exhausts interactive quota** (shared 5h/weekly windows) | 🟠 Med | Quota ledger + `--max-budget-usd` + backoff + route to backend with headroom |
 | **Long tasks time out** the MCP call | 🟠 Med | Async job pattern (core to the design) |
-| **Headless auth breaks** (browser popup; macOS Keychain locked for detached procs) | 🟠 Med | Pre-provision: `claude setup-token`→`CLAUDE_CODE_OAUTH_TOKEN`; `codex login --device-auth`; env-inject keys for daemons |
+| **Headless auth breaks** (browser popup; macOS Keychain locked for detached procs) | 🟠 Med | Pre-provision: `claude setup-token`→`CLAUDE_CODE_OAUTH_TOKEN`; `codex login --device-auth`; keep `agy` auth under `HOME`; env-inject keys for daemons |
 | Delegated code is **wrong/subtly bad** | 🟠 Med | Mandatory Claude validation + tests before merge; worktree isolation makes rejection cheap |
-| Antigravity **JSON unstable**; Gemini JSON aborts on non-fatal errors | 🟡 Low | Best-effort tier; validate output, handle non-zero exits; keep Codex/Claude as anchors |
+| Antigravity **JSON unstable**; Gemini JSON aborts on non-fatal errors | 🟡 Low | Best-effort tier; validate output, handle non-zero exits; keep Codex, Claude, and Antigravity behind validated adapters |
 | Router complexity creep | 🟡 Low | Start rule-based `policy.yaml`; add LLM-router only if measured need |
 
 ---

@@ -21,8 +21,9 @@ Phase 2 complete on the feasible items: boot visibility (`check_delegations` →
 `{server:{bootedAt,gitRev},jobs}`), quota cooldowns honoring vendor reset signals,
 escalation on reject (`parent_job_id`/`feedback`/`escalate` on `delegate_task`),
 `delegation-manager` subagent, per-server MCP isolation + timed-out-exit unmasking.
-Antigravity engine blocked (agent CLI not installed), LiteLLM `api` tier designed
-awaiting user keys — see PHASE2-RESULTS.
+Antigravity (`agy`) is implemented as a third engine (`src/engines/antigravity.ts`), wired
+through policy/routing/detect/preflight/configure and opt-in via the `policy.yaml` chain.
+LiteLLM `api` tier remains designed, awaiting user keys — see PHASE2-RESULTS.
 
 ## How to test
 ```bash
@@ -43,7 +44,7 @@ Engine selection: copy `policy.example.yaml` → `policy.yaml` (gitignored) and 
   keep this path stable). Tool surface lives in `src/mcp/tools.ts` (`registerDelegateTools`,
   `resolveRevision`, payload helpers).
 - Domains: `src/jobs/` (store, executor, paths) · `src/routing/` (policy, router, quota) ·
-  `src/engines/` (codex, claude + `shared/` worker-process, failure-signals, prompt — shared
+  `src/engines/` (codex, claude, antigravity + `shared/` worker-process, failure-signals, prompt — shared
   infra lives here, never inside one engine) · `src/git/` (worktree, gc) · `src/types.ts`
   (cross-domain contract, single file by design).
 - `src/playground/` — target area for delegated example tasks (e2e smoke), NOT product code.
@@ -73,6 +74,12 @@ Engine selection: copy `policy.example.yaml` → `policy.yaml` (gitignored) and 
   deep-merge **no-op** on codex 0.144.x (Phase-2 finding 6) and MCP server processes run
   outside the worker sandbox. Worktree `node_modules` is an **APFS clone** (worker writes
   stay private), symlink only as non-APFS fallback.
+- Antigravity workers use `agy -p --output-format json`; the final message is `response` and
+  success is `status === "SUCCESS"`. Always pass `--print-timeout` (its 5m default is shorter
+  than a job) and `--dangerously-skip-permissions` (non-TTY autonomy). Auth resolves through
+  `HOME` from `~/.gemini`/keyring, so `buildWorkerEnv` needs no new allow-list key. There is no
+  per-invocation MCP-disable flag: personal MCP servers in `~/.gemini/settings.json` are not
+  isolated beyond the worktree, sanitized env and timeout guard; bespoke isolation is a follow-up.
 - Personal project: public npm registry pinned in `.npmrc`; **never** use a private/corporate registry.
 - Engine selection lives in the `policy.yaml` router (chain + per-engine quotas); quota/auth
   failures reroute to the next engine. Keep results engine-neutral ("delegated worker", not

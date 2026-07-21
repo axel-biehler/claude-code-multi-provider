@@ -11,7 +11,7 @@ delegated to workers (dogfooding); the orchestrator kept design, validation, doc
 | 3 | `delegation-manager` subagent | ✅ `3afa9ae` (`.claude/agents/delegation-manager.md`) |
 | 5 | Ledger honors vendor reset signals (`parseRetryAt` → `markExhaustedUntil`) | ✅ `622323a` |
 | 4 | Escalation on reject (`parent_job_id` + `feedback` + `escalate`) | ✅ `c48211d` (attempt 1 stalled → findings 6-7; attempt 2 clean, 542 s) |
-| 1 | Third engine: Antigravity | 🔴 blocked — see finding 1 |
+| 1 | Third engine: Antigravity | ✅ shipped in Phase 3 — finding 1 resolved |
 | 2 | LiteLLM API-fallback tier | 📐 designed, awaiting user input (keys/proxy) |
 
 `check_delegations` now returns `{ server: { bootedAt, gitRev }, jobs: [...] }` — a breaking
@@ -85,10 +85,25 @@ this **replaces** the Phase-1 "`check_delegations` → `[]` confirms a new proce
 
 ## Phase 3 backlog
 
-1. Antigravity engine once the user installs the agent CLI (PATH collision with the IDE
-   launcher to resolve first; design for the non-TTY stdout dropout — finding 1).
+1. ✅ DONE — Antigravity engine shipped; only the per-invocation MCP-isolation follow-up remains.
 2. LiteLLM `api` tier once keys/proxy questions are answered (design above).
 3. Codex worker env: neutralized `GIT_CONFIG_GLOBAL` (finding 3).
 4. Live trial of the `delegation-manager` subagent on a real multi-task batch.
 5. Escalation follow-ups once item 4 is exercised for real: revision-of-revision chains,
    and whether `escalate` should also bias toward a policy-declared "stronger" order.
+
+## Phase 3 — Antigravity engine (shipped)
+
+The blocker in finding 1 is resolved: the real headless CLI `agy` 1.1.5 is installed at
+`~/.local/bin/agy`, winning PATH over the IDE launcher symlink.
+
+1. Real headless CLI at ~/.local/bin/agy (wins PATH; IDE launcher symlink is ~/.antigravity/antigravity/bin/agy).
+2. `agy -p --output-format json` prints one JSON object: {conversation_id,status,response,duration_seconds,num_turns,usage}. Final message = response; success = status==="SUCCESS". Parser mirrors parseClaudeJson.
+3. Auth resolves via HOME (data dir ~/.gemini, keyring) and SURVIVES the sanitized buildWorkerEnv (PATH/HOME/LANG only) — no new allow-list key needed. `agy models`: gemini-3.5-flash-{low,medium,high}, gemini-3.1-pro-{low,high}, claude-sonnet-4-6, claude-opus-4-6-thinking, gpt-oss-120b-medium.
+4. `--app_data_dir=<empty>` breaks auth (exit 1) — not usable for isolation.
+5. Personal MCP `aws-mcp` lives in ~/.gemini/settings.json; there is NO per-invocation MCP-disable flag (full flag set: add-dir, agent, continue, conversation, dangerously-skip-permissions, effort, log-file, mode, model, new-project, print, print-timeout, project, prompt, prompt-interactive, sandbox). Read-only print runs booted no MCP. Shipped without bespoke MCP isolation; worktree + sanitized env + timeout guard contain any stall; verify/close at e2e (follow-up).
+6. `--print-timeout` default is 5 minutes (< a real job) — the adapter passes `--print-timeout=<ceil(timeoutMs/1000)>s`.
+7. Tool autonomy via `--dangerously-skip-permissions` (not `--sandbox`).
+8. Working dir via `cwd` (mirrors claude), `--add-dir` is the fallback lever.
+
+Design decision: default chain stays [codex, claude]; antigravity is opt-in via policy.yaml.
