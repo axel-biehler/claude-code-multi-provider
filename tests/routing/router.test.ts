@@ -61,6 +61,21 @@ describe('resolveWorkerModel', () => {
     // Assert
     expect(model).toBeUndefined()
   })
+
+  test('resolves antigravity models with the same optional fallback as codex', () => {
+    // Arrange
+    const policy = PolicySchema.parse({
+      workers: { antigravity: { models: { heavy: 'gemini-heavy' } } },
+    })
+
+    // Act
+    const tierModel = resolveWorkerModel(policy, 'antigravity', 'heavy')
+    const fallbackModel = resolveWorkerModel(policy, 'antigravity', 'light')
+
+    // Assert
+    expect(tierModel).toBe('gemini-heavy')
+    expect(fallbackModel).toBeUndefined()
+  })
 })
 
 describe('selectEngine', () => {
@@ -100,6 +115,19 @@ describe('selectEngine', () => {
 
     // Assert
     expect(selected).toBe('claude')
+  })
+
+  test('routes through antigravity when it is next in the configured chain', async () => {
+    // Arrange
+    const policy = PolicySchema.parse({ chain: ['codex', 'antigravity', 'claude'] })
+    const ledger = await QuotaLedger.load(repoRoot, now)
+    await ledger.markExhausted('codex', 60)
+
+    // Act
+    const selected = selectEngine(policy, ledger)
+
+    // Assert
+    expect(selected).toBe('antigravity')
   })
 
   test('falls through when ok-records consume the first engine 5h cap', async () => {

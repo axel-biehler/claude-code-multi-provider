@@ -61,10 +61,14 @@ describe('configure_delegation logic', () => {
     const providers = {
       codex: { available: true, detail: 'authenticated' },
       claude: { available: false, detail: 'not authenticated' },
+      antigravity: { available: true, detail: 'authenticated' },
     }
     const policy = PolicySchema.parse({
-      chain: ['codex'],
-      workers: { claude: { model: 'opus' } },
+      chain: ['codex', 'antigravity'],
+      workers: {
+        claude: { model: 'opus' },
+        antigravity: { model: 'gemini-3.5-flash-high' },
+      },
     })
 
     // Act
@@ -72,8 +76,15 @@ describe('configure_delegation logic', () => {
 
     // Assert
     expect(payload).toEqual({
-      providers: { codex: { available: true }, claude: { available: false } },
-      currentPolicy: { chain: ['codex'], models: { claude: 'opus' } },
+      providers: {
+        codex: { available: true },
+        claude: { available: false },
+        antigravity: { available: true },
+      },
+      currentPolicy: {
+        chain: ['codex', 'antigravity'],
+        models: { claude: 'opus', antigravity: 'gemini-3.5-flash-high' },
+      },
     })
     expect(buildConfigureDelegationDetectPayload(providers, null).currentPolicy).toBeNull()
   })
@@ -83,11 +94,13 @@ describe('configure_delegation logic', () => {
     const providers = {
       codex: { available: true, detail: 'authenticated' },
       claude: { available: true, detail: 'authenticated' },
+      antigravity: { available: true, detail: 'authenticated' },
     }
     const policy = PolicySchema.parse({
       workers: {
         codex: { models: { light: 'small', heavy: 'big' } },
         claude: { models: { standard: 'medium' } },
+        antigravity: { models: { heavy: 'gemini-heavy' } },
       },
     })
 
@@ -98,12 +111,14 @@ describe('configure_delegation logic', () => {
     expect(payload.currentPolicy?.modelTiers).toEqual({
       codex: { light: 'small', heavy: 'big' },
       claude: { standard: 'medium' },
+      antigravity: { heavy: 'gemini-heavy' },
     })
   })
 
   test.each([
     ['a scalar model', { codex: 'gpt-x' }],
     ['a tier model map', { claude: { light: 'small', heavy: 'big' } }],
+    ['an antigravity model', { antigravity: 'gemini-3.5-flash-high' }],
   ])('accepts %s in write input', (_label, models) => {
     expect(
       parseConfigureDelegationWriteInput({ action: 'write', chain: ['codex'], models }),

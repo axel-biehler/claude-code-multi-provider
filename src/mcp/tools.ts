@@ -62,9 +62,15 @@ function summarizePolicy(policy: Policy): PolicySummary {
   const models: Partial<Record<EngineName, string>> = {}
   if (policy.workers.codex.model !== undefined) models.codex = policy.workers.codex.model
   if (policy.workers.claude.model !== undefined) models.claude = policy.workers.claude.model
+  if (policy.workers.antigravity.model !== undefined) {
+    models.antigravity = policy.workers.antigravity.model
+  }
   const modelTiers: Partial<Record<EngineName, Partial<Record<Effort, string>>>> = {}
   if (policy.workers.codex.models !== undefined) modelTiers.codex = policy.workers.codex.models
   if (policy.workers.claude.models !== undefined) modelTiers.claude = policy.workers.claude.models
+  if (policy.workers.antigravity.models !== undefined) {
+    modelTiers.antigravity = policy.workers.antigravity.models
+  }
   return {
     chain: policy.chain,
     models,
@@ -83,6 +89,7 @@ export function buildConfigureDelegationDetectPayload(
     providers: {
       codex: { available: providers.codex.available },
       claude: { available: providers.claude.available },
+      antigravity: { available: providers.antigravity.available },
     },
     currentPolicy: currentPolicy === null ? null : summarizePolicy(currentPolicy),
   }

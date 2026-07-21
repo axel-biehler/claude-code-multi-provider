@@ -6,7 +6,7 @@ import type { QuotaConfig } from '../types'
 
 const POLICY_FILE_NAME = 'policy.yaml'
 
-export const EngineNameSchema = z.enum(['codex', 'claude'])
+export const EngineNameSchema = z.enum(['codex', 'claude', 'antigravity'])
 export const EffortSchema = z.enum(['light', 'standard', 'heavy'])
 
 // Model ids are handed to the worker CLI as `--model=<id>`; reject a leading '-' so a
@@ -45,12 +45,20 @@ export const PolicySchema = z.object({
           timeoutMs: z.number().int().positive().default(600_000),
         })
         .default({}),
+      antigravity: z
+        .object({
+          model: ModelIdSchema.optional(),
+          models: z.record(EffortSchema, ModelIdSchema).optional(),
+          timeoutMs: z.number().int().positive().default(600_000),
+        })
+        .default({}),
     })
     .default({}),
   quotas: z
     .object({
       codex: QuotaConfigSchema.default({}),
       claude: QuotaConfigSchema.default({}),
+      antigravity: QuotaConfigSchema.default({}),
     })
     .default({}),
   retention: z

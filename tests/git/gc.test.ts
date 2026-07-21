@@ -21,6 +21,7 @@ describe('gc', () => {
     await execFileAsync('git', ['init', '-b', 'main'], { cwd: repoRoot })
     await execFileAsync('git', ['config', 'user.email', 'test@test.local'], { cwd: repoRoot })
     await execFileAsync('git', ['config', 'user.name', 'Test'], { cwd: repoRoot })
+    await execFileAsync('git', ['config', 'commit.gpgSign', 'false'], { cwd: repoRoot })
     await writeFile(join(repoRoot, 'tracked.txt'), 'initial content\n', 'utf8')
     await execFileAsync('git', ['add', 'tracked.txt'], { cwd: repoRoot })
     await execFileAsync('git', ['commit', '-m', 'initial commit'], { cwd: repoRoot })

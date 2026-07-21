@@ -5,6 +5,7 @@
 
 # Engine fallback chain, tried in order. Quota exhaustion or an auth failure
 # on one engine is a routing signal: the job moves to the next engine.
+# Antigravity is available for inclusion anywhere in this chain.
 chain:
   - codex
   - claude
@@ -33,6 +34,16 @@ workers:
     #   heavy: opus
     maxBudgetUsd: 2 # per-job spend cap
     timeoutMs: 600000
+  antigravity:
+    # Optional; falls back to the Antigravity CLI's configured default.
+    # model: gemini-3.5-flash-high
+    # model: claude-sonnet-4-6
+    # Optional per-effort tiers (see the codex note above).
+    # models:
+    #   light: gemini-3.5-flash-high
+    #   standard: claude-sonnet-4-6
+    #   heavy: gemini-3.5-flash-high
+    timeoutMs: 600000
 
 # Per-engine quota budgets. Hitting a budget marks the engine exhausted for
 # the cooldown window; the router skips it and tries the next engine.
@@ -42,6 +53,10 @@ quotas:
     maxJobsPerWeek: 50
     exhaustionCooldownMinutes: 60
   claude:
+    maxJobsPer5h: 10
+    maxJobsPerWeek: 50
+    exhaustionCooldownMinutes: 60
+  antigravity:
     maxJobsPer5h: 10
     maxJobsPerWeek: 50
     exhaustionCooldownMinutes: 60

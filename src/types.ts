@@ -66,7 +66,7 @@ export const GetDelegationResultSchema = z.object({
 
 export type GetDelegationResultInput = z.infer<typeof GetDelegationResultSchema>
 
-export type EngineName = 'codex' | 'claude'
+export type EngineName = 'codex' | 'claude' | 'antigravity'
 export type Effort = 'light' | 'standard' | 'heavy'
 
 // quota/auth are routing signals (skip the engine, try the next); other is a plain job failure.

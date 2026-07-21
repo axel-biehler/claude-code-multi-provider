@@ -21,9 +21,12 @@ describe('PolicySchema', () => {
     expect(policy.maxConcurrentJobs).toBe(2)
     expect(policy.workers.codex.timeoutMs).toBe(600_000)
     expect(policy.workers.codex.model).toBeUndefined()
+    expect(policy.workers.antigravity.timeoutMs).toBe(600_000)
+    expect(policy.workers.antigravity.model).toBeUndefined()
     expect(policy.workers.claude.model).toBe('sonnet')
     expect(policy.workers.claude.maxBudgetUsd).toBe(2)
     expect(policy.quotas.codex.maxJobsPer5h).toBe(10)
+    expect(policy.quotas.antigravity.maxJobsPer5h).toBe(10)
     expect(policy.quotas.claude.maxJobsPerWeek).toBe(50)
     expect(policy.retention).toEqual({ maxAgeDays: 7, keepLast: 10 })
   })
@@ -39,11 +42,30 @@ describe('PolicySchema', () => {
     expect(policy.workers.codex.model).toBe('gpt-5.6-sol')
   })
 
+  test('accepts antigravity in the chain with an optional model and no budget', () => {
+    // Arrange
+    const config = {
+      chain: ['antigravity'],
+      workers: { antigravity: { model: 'gemini-3.5-flash-high' } },
+    }
+
+    // Act
+    const policy = PolicySchema.parse(config)
+
+    // Assert
+    expect(policy.chain).toEqual(['antigravity'])
+    expect(policy.workers.antigravity).toEqual({
+      model: 'gemini-3.5-flash-high',
+      timeoutMs: 600_000,
+    })
+  })
+
   test('accepts per-tier worker models', () => {
     // Arrange
     const config = {
       workers: {
         codex: { models: { light: 'gpt-light', heavy: 'gpt-heavy' } },
+        antigravity: { models: { light: 'gemini-light', heavy: 'gemini-heavy' } },
         claude: { models: { standard: 'claude-standard' } },
       },
     }
@@ -53,12 +75,16 @@ describe('PolicySchema', () => {
 
     // Assert
     expect(policy.workers.codex.models).toEqual({ light: 'gpt-light', heavy: 'gpt-heavy' })
+    expect(policy.workers.antigravity.models).toEqual({
+      light: 'gemini-light',
+      heavy: 'gemini-heavy',
+    })
     expect(policy.workers.claude.models).toEqual({ standard: 'claude-standard' })
   })
 
   test('keeps scalar model defaults when per-tier models are omitted', () => {
     // Arrange
-    const config = { workers: { codex: {}, claude: {} } }
+    const config = { workers: { codex: {}, claude: {}, antigravity: {} } }
 
     // Act
     const policy = PolicySchema.parse(config)
@@ -66,6 +92,8 @@ describe('PolicySchema', () => {
     // Assert
     expect(policy.workers.codex.models).toBeUndefined()
     expect(policy.workers.codex.model).toBeUndefined()
+    expect(policy.workers.antigravity.models).toBeUndefined()
+    expect(policy.workers.antigravity.model).toBeUndefined()
     expect(policy.workers.claude.models).toBeUndefined()
     expect(policy.workers.claude.model).toBe('sonnet')
   })

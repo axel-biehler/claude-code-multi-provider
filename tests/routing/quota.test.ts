@@ -33,10 +33,12 @@ describe('QuotaLedger', () => {
     // Act
     const codexHeadroom = ledger.hasHeadroom('codex', QUOTA)
     const claudeHeadroom = ledger.hasHeadroom('claude', QUOTA)
+    const antigravityHeadroom = ledger.hasHeadroom('antigravity', QUOTA)
 
     // Assert
     expect(codexHeadroom).toBe(true)
     expect(claudeHeadroom).toBe(true)
+    expect(antigravityHeadroom).toBe(true)
   })
 
   test('counts only ok and other outcomes toward caps, not quota or auth attempts', async () => {
@@ -148,15 +150,18 @@ describe('QuotaLedger', () => {
     const original = await QuotaLedger.load(repoRoot, now)
     await original.record({ engine: 'codex', durationMs: 1200, outcome: 'ok' })
     await original.record({ engine: 'claude', durationMs: 800, outcome: 'other' })
+    await original.record({ engine: 'antigravity', durationMs: 600, outcome: 'ok' })
     await original.markExhausted('codex', 45)
+    await original.markExhausted('antigravity', 30)
 
     // Act
     const reloaded = await QuotaLedger.load(repoRoot, now)
 
     // Assert
     expect(reloaded.snapshot()).toEqual(original.snapshot())
-    expect(reloaded.snapshot().attempts).toHaveLength(2)
+    expect(reloaded.snapshot().attempts).toHaveLength(3)
     expect(reloaded.snapshot().exhaustedUntil.codex).toBe(t + 45 * 60_000)
+    expect(reloaded.snapshot().exhaustedUntil.antigravity).toBe(t + 30 * 60_000)
   })
 
   test('load starts fresh without throwing when the ledger file is corrupt', async () => {

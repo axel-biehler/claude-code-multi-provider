@@ -1,10 +1,10 @@
 import { execFile } from 'node:child_process'
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { executeJob, neutralizeRunnerErrors } from '../../src/jobs/executor'
+import { buildDefaultWorkerRunner, executeJob, neutralizeRunnerErrors } from '../../src/jobs/executor'
 import type { WorkerRunner } from '../../src/jobs/executor'
 import { buildJobPaths } from '../../src/jobs/paths'
 import { PolicySchema } from '../../src/routing/policy'
@@ -26,7 +26,9 @@ describe('executeJob', () => {
     await writeFile(join(repoRoot, '.gitignore'), 'node_modules\n.delegate\n', 'utf8')
     await writeFile(join(repoRoot, 'tracked.txt'), 'initial content\n', 'utf8')
     await execFileAsync('git', ['add', '.gitignore', 'tracked.txt'], { cwd: repoRoot })
-    await execFileAsync('git', ['commit', '-m', 'initial commit'], { cwd: repoRoot })
+    await execFileAsync('git', ['-c', 'commit.gpgSign=false', 'commit', '-m', 'initial commit'], {
+      cwd: repoRoot,
+    })
   })
 
   afterEach(async () => {
@@ -455,15 +457,64 @@ describe('executeJob', () => {
   })
 })
 
+describe('buildDefaultWorkerRunner', () => {
+  test('runs antigravity with the user-local agy binary and configured options', async () => {
+    // Arrange
+    const repoRoot = await mkdtemp(join(tmpdir(), 'delegate-antigravity-runner-'))
+    const fakeHome = join(repoRoot, 'home')
+    const agyBin = join(fakeHome, '.local', 'bin', 'agy')
+    const paths = buildJobPaths(repoRoot, 'job-antigravity-runner')
+    const originalHome = process.env.HOME
+    const originalPath = process.env.PATH
+    await mkdir(join(fakeHome, '.local', 'bin'), { recursive: true })
+    await mkdir(paths.jobDir, { recursive: true })
+    await writeFile(
+      agyBin,
+      '#!/bin/sh\nprintf \'{"response":"%s","status":"success"}\' "$0|$*"\n',
+      'utf8',
+    )
+    await chmod(agyBin, 0o755)
+    process.env.HOME = fakeHome
+    process.env.PATH = '/usr/bin:/bin'
+
+    try {
+      // Act
+      const outcome = await buildDefaultWorkerRunner()({
+        engine: 'antigravity',
+        model: 'gemini-test',
+        repoRoot,
+        worktreePath: repoRoot,
+        prompt: 'Reply with exactly: ok',
+        paths,
+        policy: PolicySchema.parse({
+          workers: { antigravity: { timeoutMs: 123_000 } },
+        }),
+      })
+
+      // Assert
+      expect(outcome.exitCode).toBe(0)
+      expect(outcome.lastMessage).toContain(`${agyBin}|-p Reply with exactly: ok`)
+      expect(outcome.lastMessage).toContain('--print-timeout 123s')
+      expect(outcome.lastMessage).toContain('--model=gemini-test')
+    } finally {
+      if (originalHome === undefined) delete process.env.HOME
+      else process.env.HOME = originalHome
+      if (originalPath === undefined) delete process.env.PATH
+      else process.env.PATH = originalPath
+      await rm(repoRoot, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('neutralizeRunnerErrors', () => {
   test('replaces an engine-named spawn failure with an engine-neutral error', async () => {
     // Arrange
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const runner = neutralizeRunnerErrors(async () => {
-      throw new Error('spawn codex ENOENT')
+      throw new Error('spawn agy ENOENT')
     })
     const request = {
-      engine: 'codex' as const,
+      engine: 'antigravity' as const,
       repoRoot: '/tmp/none',
       worktreePath: '/tmp/none/wt',
       prompt: 'objective',
@@ -482,6 +533,7 @@ describe('neutralizeRunnerErrors', () => {
     expect(error?.message).toMatch(/failed to start or crashed/)
     expect(error?.message).not.toMatch(/codex/i)
     expect(error?.message).not.toMatch(/claude/i)
+    expect(error?.message).not.toMatch(/antigravity|agy/i)
   })
 
   test('passes successful outcomes through untouched', async () => {

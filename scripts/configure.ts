@@ -8,10 +8,10 @@ import { writePolicyFile } from '../src/config/policy-writer'
 import type { PolicyPatch } from '../src/config/policy-writer'
 import type { EngineName } from '../src/types'
 
-const PROVIDERS = ['codex', 'claude'] as const satisfies readonly EngineName[]
+const PROVIDERS = ['codex', 'claude', 'antigravity'] as const satisfies readonly EngineName[]
 
 function isEngineName(value: string): value is EngineName {
-  return value === 'codex' || value === 'claude'
+  return value === 'codex' || value === 'claude' || value === 'antigravity'
 }
 
 export function parseProviderSelection(
@@ -39,7 +39,7 @@ export function buildPolicyPatch(
   for (const provider of chain) {
     const model = modelAnswers[provider]?.trim() ?? ''
     if (provider === 'claude') models.claude = model || 'sonnet'
-    else if (model !== '') models.codex = model
+    else if (model !== '') models[provider] = model
   }
   return { chain: [...chain], models }
 }

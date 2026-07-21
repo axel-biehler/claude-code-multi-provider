@@ -42,17 +42,24 @@ describe('provider authentication detection', () => {
       join(pathDirectory, 'claude'),
       '[ "$1" = "--version" ] && printf "Claude Code 1.2.3\\n"',
     )
+    await writeExecutable(
+      join(pathDirectory, 'agy'),
+      '[ "$1" = "--version" ] && printf "Antigravity 2.3.4\\n"',
+    )
     const stdout = vi.spyOn(console, 'log').mockImplementation(() => undefined)
 
     // Act
     const detections = await detectAuthenticatedProviders(repoRoot)
 
     // Assert
-    expect(Object.keys(detections).sort()).toEqual(['claude', 'codex'])
+    expect(Object.keys(detections).sort()).toEqual(['antigravity', 'claude', 'codex'])
     expect(detections.codex).toEqual({ available: true, detail: `binary: ${bundledCodex}` })
     expect(detections.claude.available).toBe(true)
     expect(detections.claude.detail).toContain('Claude Code 1.2.3')
     expect(detections.claude.detail).toContain('npm run preflight')
+    expect(detections.antigravity.available).toBe(true)
+    expect(detections.antigravity.detail).toContain('Antigravity 2.3.4')
+    expect(detections.antigravity.detail).toContain('npm run preflight')
     expect(stdout).not.toHaveBeenCalled()
   })
 
@@ -82,6 +89,7 @@ describe('provider authentication detection', () => {
     // Act
     const codex = await detectAuthenticatedProvider('codex', repoRoot)
     const claude = await detectAuthenticatedProvider('claude', repoRoot)
+    const antigravity = await detectAuthenticatedProvider('antigravity', repoRoot)
 
     // Assert
     expect(codex.available).toBe(false)
@@ -90,6 +98,16 @@ describe('provider authentication detection', () => {
     expect(claude.detail).toBe('CLI not found on PATH — install the Claude Code CLI')
     expect(claude.reports).toEqual([
       { status: 'fail', message: 'claude CLI not found on PATH — install the Claude Code CLI' },
+    ])
+    expect(antigravity.available).toBe(false)
+    expect(antigravity.detail).toBe(
+      'agy CLI not found on PATH — install the Antigravity CLI',
+    )
+    expect(antigravity.reports).toEqual([
+      {
+        status: 'fail',
+        message: 'agy CLI not found on PATH — install the Antigravity CLI',
+      },
     ])
   })
 })

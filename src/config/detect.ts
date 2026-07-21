@@ -124,22 +124,51 @@ async function detectClaude(): Promise<ProviderStaticDetection> {
   }
 }
 
+export async function detectAntigravity(): Promise<ProviderStaticDetection> {
+  const result = await run('agy', ['--version'])
+  if (result.spawnErrorCode !== undefined || result.exitCode !== 0) {
+    return {
+      engine: 'antigravity',
+      available: false,
+      detail: 'agy CLI not found on PATH — install the Antigravity CLI',
+      reports: [
+        {
+          status: 'fail',
+          message: 'agy CLI not found on PATH — install the Antigravity CLI',
+        },
+      ],
+    }
+  }
+
+  const version = firstLine(result.stdout)
+  return {
+    engine: 'antigravity',
+    available: true,
+    detail: `binary: ${version}; live authentication check requires: npm run preflight`,
+    reports: [{ status: 'ok', message: `antigravity binary: ${version}` }],
+  }
+}
+
 export function detectAuthenticatedProvider(
   engine: EngineName,
   repoRoot: string,
 ): Promise<ProviderStaticDetection> {
-  return engine === 'codex' ? detectCodex(repoRoot) : detectClaude()
+  if (engine === 'codex') return detectCodex(repoRoot)
+  if (engine === 'antigravity') return detectAntigravity()
+  return detectClaude()
 }
 
 export async function detectAuthenticatedProviders(
   repoRoot: string,
 ): Promise<Record<EngineName, ProviderDetection>> {
-  const [codex, claude] = await Promise.all([
+  const [codex, claude, antigravity] = await Promise.all([
     detectAuthenticatedProvider('codex', repoRoot),
     detectAuthenticatedProvider('claude', repoRoot),
+    detectAuthenticatedProvider('antigravity', repoRoot),
   ])
   return {
     codex: { available: codex.available, detail: codex.detail },
     claude: { available: claude.available, detail: claude.detail },
+    antigravity: { available: antigravity.available, detail: antigravity.detail },
   }
 }

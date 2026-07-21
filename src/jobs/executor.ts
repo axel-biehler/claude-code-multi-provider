@@ -1,8 +1,10 @@
 import { execFile } from 'node:child_process'
 import { access, mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { promisify } from 'node:util'
+import { runAntigravity } from '../engines/antigravity'
 import { runClaude } from '../engines/claude'
 import { resolveCodexConfigOverrides, runCodex } from '../engines/codex'
 import { buildPrompt } from '../engines/shared/prompt'
@@ -90,6 +92,16 @@ async function resolveCodexBin(repoRoot: string): Promise<string> {
   }
 }
 
+async function resolveAntigravityBin(): Promise<string> {
+  const localPath = join(homedir(), '.local', 'bin', 'agy')
+  try {
+    await access(localPath)
+    return localPath
+  } catch {
+    return 'agy'
+  }
+}
+
 function truncateSummary(lastMessage: string | null): string {
   const raw = lastMessage ?? '(worker returned no message)'
   return raw.length > SUMMARY_MAX_CHARS ? `${raw.slice(0, SUMMARY_MAX_CHARS)}…` : raw
@@ -156,6 +168,17 @@ export function buildDefaultWorkerRunner(): WorkerRunner {
         timeoutMs: worker.timeoutMs,
         model: req.model,
         maxBudgetUsd: worker.maxBudgetUsd,
+      })
+    }
+    if (req.engine === 'antigravity') {
+      const worker = req.policy.workers.antigravity
+      return runAntigravity({
+        agyBin: await resolveAntigravityBin(),
+        worktreePath: req.worktreePath,
+        prompt: req.prompt,
+        paths: req.paths,
+        timeoutMs: worker.timeoutMs,
+        model: req.model,
       })
     }
     const codexBin = await resolveCodexBin(req.repoRoot)

@@ -19,10 +19,10 @@ describe('parseProviderSelection', () => {
 
   test('uses every available provider when the answer is blank', () => {
     // Act
-    const chain = parseProviderSelection('  ', ['claude'])
+    const chain = parseProviderSelection('  ', ['claude', 'antigravity'])
 
     // Assert
-    expect(chain).toEqual(['claude'])
+    expect(chain).toEqual(['claude', 'antigravity'])
   })
 
   test('rejects unavailable and duplicate providers', () => {
@@ -39,23 +39,31 @@ describe('parseProviderSelection', () => {
 describe('buildPolicyPatch', () => {
   test('omits a blank codex model and defaults a blank claude model to sonnet', () => {
     // Act
-    const patch = buildPolicyPatch(['codex', 'claude'], { codex: '  ', claude: '' })
-
-    // Assert
-    expect(patch).toEqual({ chain: ['codex', 'claude'], models: { claude: 'sonnet' } })
-  })
-
-  test('trims explicit model names', () => {
-    // Act
-    const patch = buildPolicyPatch(['claude', 'codex'], {
-      codex: ' gpt-test ',
-      claude: ' opus ',
+    const patch = buildPolicyPatch(['codex', 'claude', 'antigravity'], {
+      codex: '  ',
+      claude: '',
+      antigravity: ' ',
     })
 
     // Assert
     expect(patch).toEqual({
-      chain: ['claude', 'codex'],
-      models: { claude: 'opus', codex: 'gpt-test' },
+      chain: ['codex', 'claude', 'antigravity'],
+      models: { claude: 'sonnet' },
+    })
+  })
+
+  test('trims explicit model names', () => {
+    // Act
+    const patch = buildPolicyPatch(['claude', 'codex', 'antigravity'], {
+      codex: ' gpt-test ',
+      claude: ' opus ',
+      antigravity: ' gemini-test ',
+    })
+
+    // Assert
+    expect(patch).toEqual({
+      chain: ['claude', 'codex', 'antigravity'],
+      models: { claude: 'opus', codex: 'gpt-test', antigravity: 'gemini-test' },
     })
   })
 })
