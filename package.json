@@ -1,0 +1,52 @@
+{
+  "name": "claude-code-multi-provider",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP server that lets Claude Code delegate bounded implementation subtasks to subscription-CLI workers (Codex/Claude) running in isolated git worktrees, while it stays the orchestrator.",
+  "license": "MIT",
+  "author": "Axel Biehler",
+  "homepage": "https://github.com/axel-biehler/claude-code-multi-provider#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/axel-biehler/claude-code-multi-provider.git"
+  },
+  "bugs": {
+    "url": "https://github.com/axel-biehler/claude-code-multi-provider/issues"
+  },
+  "keywords": [
+    "mcp",
+    "claude-code",
+    "delegation",
+    "codex",
+    "multi-provider",
+    "worktree"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "setup": "bash scripts/setup.sh",
+    "configure": "tsx scripts/configure.ts",
+    "codex-login": "codex login",
+    "build:plugin": "bash scripts/build-plugin.sh",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "preflight": "tsx scripts/preflight.ts",
+    "e2e": "tsx scripts/e2e.ts",
+    "gc": "tsx scripts/gc.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "yaml": "^2.9.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@openai/codex": "^0.144.5",
+    "@types/node": "^26.1.1",
+    "esbuild": "^0.28.1",
+    "tsx": "^4.23.1",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "claude-code-multi-provider",
+  "owner": { "name": "Axel Biehler" },
+  "plugins": [
+    {
+      "name": "delegate-multi-provider",
+      "source": "./plugin",
+      "description": "Delegate bounded implementation subtasks to subscription-CLI workers in isolated git worktrees."
+    }
+  ]
+}

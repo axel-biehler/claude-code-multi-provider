@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "delegate": {
+      "command": "npx",
+      "args": ["tsx", "src/server.ts"],
+      "env": {
+        "MCP_TIMEOUT": "600000",
+        "MCP_TOOL_TIMEOUT": "600000"
+      }
+    }
+  }
+}

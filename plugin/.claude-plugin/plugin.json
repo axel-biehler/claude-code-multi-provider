@@ -1,0 +1,19 @@
+{
+  "name": "delegate-multi-provider",
+  "version": "0.1.0",
+  "description": "Delegate bounded implementation subtasks to subscription-CLI workers (Codex/Claude) in isolated git worktrees. Claude Code stays the orchestrator: plan, decompose, validate, merge.",
+  "author": { "name": "Axel Biehler" },
+  "homepage": "https://github.com/axel-biehler/claude-code-multi-provider",
+  "repository": "https://github.com/axel-biehler/claude-code-multi-provider",
+  "keywords": ["mcp", "delegation", "codex", "multi-provider", "worktree"],
+  "mcpServers": {
+    "delegate": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/delegate-server.mjs"],
+      "env": {
+        "MCP_TIMEOUT": "600000",
+        "MCP_TOOL_TIMEOUT": "600000"
+      }
+    }
+  }
+}

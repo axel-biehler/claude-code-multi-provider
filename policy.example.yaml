@@ -1,0 +1,52 @@
+# Copy to policy.yaml (gitignored) and edit — absent file means these defaults.
+#
+# Every field is optional: a partial policy.yaml only overrides what it names,
+# the rest keeps the defaults shown here (this file matches them exactly).
+
+# Engine fallback chain, tried in order. Quota exhaustion or an auth failure
+# on one engine is a routing signal: the job moves to the next engine.
+chain:
+  - codex
+  - claude
+
+# Upper bound on delegated jobs running at the same time (1-8).
+maxConcurrentJobs: 2
+
+# Per-engine worker tuning.
+workers:
+  codex:
+    # Optional; falls back to the Codex CLI's configured default.
+    # model: gpt-5.6-sol
+    # Optional per-effort model tiers. delegate_task's `effort` hint
+    # (light|standard|heavy) selects a tier; an unset tier falls back to
+    # `model` above. Omit `models` entirely to always use `model`.
+    # models:
+    #   light: gpt-5.6-sol
+    #   heavy: gpt-5.6-sol
+    timeoutMs: 600000 # kill the worker after 10 minutes
+  claude:
+    model: sonnet # model alias, and the fallback when no tier matches
+    # Optional per-effort tiers (see the codex note above).
+    # models:
+    #   light: haiku
+    #   standard: sonnet
+    #   heavy: opus
+    maxBudgetUsd: 2 # per-job spend cap
+    timeoutMs: 600000
+
+# Per-engine quota budgets. Hitting a budget marks the engine exhausted for
+# the cooldown window; the router skips it and tries the next engine.
+quotas:
+  codex:
+    maxJobsPer5h: 10
+    maxJobsPerWeek: 50
+    exhaustionCooldownMinutes: 60
+  claude:
+    maxJobsPer5h: 10
+    maxJobsPerWeek: 50
+    exhaustionCooldownMinutes: 60
+
+# Retention for job artifacts and worktrees (.delegate/), used by GC.
+retention:
+  maxAgeDays: 7 # prune jobs older than this...
+  keepLast: 10 # ...but always keep the N most recent

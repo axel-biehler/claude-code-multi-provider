@@ -1,0 +1,10 @@
+node_modules
+dist/
+.delegate/
+*.log
+.idea/
+/policy.yaml
+
+# Local Claude Code settings (personal harness config, not part of the tool)
+.claude/settings.json
+.claude/settings.local.json

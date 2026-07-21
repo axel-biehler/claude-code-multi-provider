@@ -1,0 +1,10 @@
+{
+  "objective": "Create src/playground/snakeCase.ts exporting a pure function snakeCase(input: string): string that lowercases the whole string then joins the words (split on whitespace) with single underscores, ignoring leading/trailing whitespace. Also create tests/snakeCase.test.ts with vitest tests covering: a simple two-word phrase, an already-uppercase input, a single word, and an empty string returning ''.",
+  "files": ["src/playground/snakeCase.ts", "tests/snakeCase.test.ts"],
+  "context": "TypeScript ESM strict project (moduleResolution=bundler, no .js import suffixes), vitest 4. Follow existing test style: AAA structure, descriptive names. No console statements. No new dependencies.",
+  "acceptance": [
+    "npx vitest run tests/snakeCase.test.ts passes — run it yourself and report the real output",
+    "only the two listed files are created",
+    "snakeCase is a pure function with no side effects"
+  ]
+}
