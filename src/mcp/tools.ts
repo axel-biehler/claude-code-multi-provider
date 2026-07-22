@@ -5,6 +5,8 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 import { detectAuthenticatedProviders } from '../config/detect'
 import type { ProviderDetection } from '../config/detect'
+import { MODEL_SUGGESTIONS, TIER_SUGGESTIONS } from '../config/model-catalog'
+import type { ModelSuggestion } from '../config/model-catalog'
 import { writePolicyFile } from '../config/policy-writer'
 import type { RevisionSpec } from '../jobs/executor'
 import type { JobStore } from '../jobs/store'
@@ -78,18 +80,35 @@ function summarizePolicy(policy: Policy): PolicySummary {
   }
 }
 
+interface ProviderChoices {
+  readonly available: boolean
+  readonly suggestedModels: readonly ModelSuggestion[]
+  readonly suggestedTiers?: Readonly<Record<Effort, string>>
+}
+
+// Suggestions ride along so an init flow can offer concrete model choices per provider
+// without hardcoding any catalog on its side (hints only — free-form ids stay valid).
+function providerChoices(engine: EngineName, detection: ProviderDetection): ProviderChoices {
+  const tiers = TIER_SUGGESTIONS[engine]
+  return {
+    available: detection.available,
+    suggestedModels: MODEL_SUGGESTIONS[engine],
+    ...(tiers === undefined ? {} : { suggestedTiers: tiers }),
+  }
+}
+
 export function buildConfigureDelegationDetectPayload(
   providers: Record<EngineName, ProviderDetection>,
   currentPolicy: Policy | null,
 ): {
-  readonly providers: Record<EngineName, { readonly available: boolean }>
+  readonly providers: Record<EngineName, ProviderChoices>
   readonly currentPolicy: PolicySummary | null
 } {
   return {
     providers: {
-      codex: { available: providers.codex.available },
-      claude: { available: providers.claude.available },
-      antigravity: { available: providers.antigravity.available },
+      codex: providerChoices('codex', providers.codex),
+      claude: providerChoices('claude', providers.claude),
+      antigravity: providerChoices('antigravity', providers.antigravity),
     },
     currentPolicy: currentPolicy === null ? null : summarizePolicy(currentPolicy),
   }
@@ -132,7 +151,7 @@ const GET_DELEGATION_RESULT_DESCRIPTION =
   'Fetch the outcome of a delegated job by job_id. While queued/running returns the status; once finished returns the distilled summary + diff for review.'
 
 const CONFIGURE_DELEGATION_DESCRIPTION =
-  'Inspect available delegation workers and current routing settings, or update the ordered routing chain and worker model selections. Detection performs local checks only and does not run a worker.'
+  'Inspect available delegation workers and current routing settings, or update the ordered routing chain and worker model selections. Detection performs local checks only and does not run a worker; its payload includes per-provider suggested models and effort-tier presets to offer during configuration (suggestions only — any model id the provider accepts is valid).'
 
 function formatDiffSection(diff: string | null, diffPath: string): string {
   const diffText = diff ?? ''

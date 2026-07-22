@@ -45,4 +45,54 @@ describe('buildWorkerEnv', () => {
     expect(env).toEqual({ PATH: '/bin' })
     expect(env).not.toHaveProperty('ECC_GATEGUARD')
   })
+
+  test('on win32 keeps OS plumbing vars, matching names case-insensitively', () => {
+    // Arrange — real Windows envs mix casings: Path, SystemRoot, windir, ComSpec…
+    const source: NodeJS.ProcessEnv = {
+      Path: 'C:\\Windows\\system32',
+      SystemRoot: 'C:\\Windows',
+      windir: 'C:\\Windows',
+      ComSpec: 'C:\\Windows\\system32\\cmd.exe',
+      PATHEXT: '.COM;.EXE;.BAT;.CMD',
+      USERPROFILE: 'C:\\Users\\dev',
+      APPDATA: 'C:\\Users\\dev\\AppData\\Roaming',
+      LOCALAPPDATA: 'C:\\Users\\dev\\AppData\\Local',
+      TEMP: 'C:\\Users\\dev\\AppData\\Local\\Temp',
+      // must never reach a worker, whatever the platform:
+      OPENAI_API_KEY: 'sk-oai-xxx',
+      ANTHROPIC_BASE_URL: 'https://proxy.internal',
+    }
+
+    // Act
+    const env = buildWorkerEnv(source, 'win32')
+
+    // Assert
+    expect(env).toEqual({
+      Path: 'C:\\Windows\\system32',
+      SystemRoot: 'C:\\Windows',
+      windir: 'C:\\Windows',
+      ComSpec: 'C:\\Windows\\system32\\cmd.exe',
+      PATHEXT: '.COM;.EXE;.BAT;.CMD',
+      USERPROFILE: 'C:\\Users\\dev',
+      APPDATA: 'C:\\Users\\dev\\AppData\\Roaming',
+      LOCALAPPDATA: 'C:\\Users\\dev\\AppData\\Local',
+      TEMP: 'C:\\Users\\dev\\AppData\\Local\\Temp',
+    })
+  })
+
+  test('on POSIX the Windows-only names and case variants stay excluded', () => {
+    // Arrange
+    const source: NodeJS.ProcessEnv = {
+      PATH: '/usr/bin',
+      path: '/sneaky/override',
+      USERPROFILE: '/should/not/pass',
+      TEMP: '/should/not/pass',
+    }
+
+    // Act
+    const env = buildWorkerEnv(source, 'linux')
+
+    // Assert
+    expect(env).toEqual({ PATH: '/usr/bin' })
+  })
 })

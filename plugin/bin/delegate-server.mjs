@@ -28441,14 +28441,14 @@ var StdioServerTransport = class {
 
 // src/jobs/executor.ts
 import { execFile as execFile3 } from "node:child_process";
-import { access, mkdir, readFile as readFile4, symlink, writeFile } from "node:fs/promises";
+import { access as access2, mkdir, readFile as readFile4, symlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join as join3 } from "node:path";
+import { join as join4 } from "node:path";
 import { performance as performance4 } from "node:perf_hooks";
 import { promisify as promisify3 } from "node:util";
 
 // src/engines/antigravity.ts
-import { spawn } from "node:child_process";
+import { spawn as spawn2 } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 
@@ -28513,8 +28513,26 @@ function parseRetryAt(text, nowMs) {
 }
 
 // src/engines/shared/worker-process.ts
+import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
 var SIGKILL_GRACE_MS = 1e4;
+var taskkillTree = (pid) => {
+  try {
+    spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" }).on(
+      "error",
+      () => void 0
+    );
+  } catch {
+  }
+};
+function terminateChild(child, signal, options) {
+  const platform = options.platform ?? process.platform;
+  if (platform === "win32") {
+    if (child.pid !== void 0) (options.treeKill ?? taskkillTree)(child.pid);
+    return;
+  }
+  child.kill(signal);
+}
 function drainToFile(source, filePath) {
   return new Promise((resolve) => {
     const destination = createWriteStream(filePath);
@@ -28524,13 +28542,13 @@ function drainToFile(source, filePath) {
     source.pipe(destination);
   });
 }
-function armTimeoutGuard(child, timeoutMs) {
+function armTimeoutGuard(child, timeoutMs, options = {}) {
   let killTimer;
   let fired = false;
   const termTimer = setTimeout(() => {
     fired = true;
-    child.kill("SIGTERM");
-    killTimer = setTimeout(() => child.kill("SIGKILL"), SIGKILL_GRACE_MS);
+    terminateChild(child, "SIGTERM", options);
+    killTimer = setTimeout(() => terminateChild(child, "SIGKILL", options), SIGKILL_GRACE_MS);
   }, timeoutMs);
   return {
     disarm: () => {
@@ -28561,12 +28579,42 @@ var ALLOWED_KEYS = /* @__PURE__ */ new Set([
   // macOS CoreFoundation locale
 ]);
 var ALLOWED_PREFIXES = ["LC_"];
-function isAllowed(key) {
+var WINDOWS_ALLOWED_KEYS = /* @__PURE__ */ new Set([
+  "ALLUSERSPROFILE",
+  "APPDATA",
+  "COMSPEC",
+  "HOMEDRIVE",
+  "HOMEPATH",
+  "LOCALAPPDATA",
+  "NUMBER_OF_PROCESSORS",
+  "OS",
+  "PATHEXT",
+  "PROCESSOR_ARCHITECTURE",
+  "PROGRAMDATA",
+  "PROGRAMFILES",
+  "PROGRAMFILES(X86)",
+  "PROGRAMW6432",
+  "SYSTEMDRIVE",
+  "SYSTEMROOT",
+  "TEMP",
+  "TMP",
+  "USERDOMAIN",
+  "USERNAME",
+  "USERPROFILE",
+  "WINDIR"
+]);
+function matchesAllowList(key) {
   return ALLOWED_KEYS.has(key) || ALLOWED_PREFIXES.some((prefix) => key.startsWith(prefix));
 }
-function buildWorkerEnv(source = process.env) {
+function isAllowed(key, platform) {
+  if (matchesAllowList(key)) return true;
+  if (platform !== "win32") return false;
+  const upper = key.toUpperCase();
+  return matchesAllowList(upper) || WINDOWS_ALLOWED_KEYS.has(upper);
+}
+function buildWorkerEnv(source = process.env, platform = process.platform) {
   const entries = Object.entries(source).filter(
-    (entry) => entry[1] !== void 0 && isAllowed(entry[0])
+    (entry) => entry[1] !== void 0 && isAllowed(entry[0], platform)
   );
   return Object.fromEntries(entries);
 }
@@ -28615,7 +28663,7 @@ function runAntigravity(options) {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   return new Promise((resolve, reject) => {
     const startedAt = performance.now();
-    const child = spawn(options.agyBin ?? "agy", buildAntigravityArgs(options), {
+    const child = spawn2(options.agyBin ?? "agy", buildAntigravityArgs(options), {
       cwd: options.worktreePath,
       env: buildWorkerEnv(),
       stdio: ["ignore", "pipe", "pipe"]
@@ -28663,7 +28711,7 @@ ${stderrText}`;
 }
 
 // src/engines/claude.ts
-import { spawn as spawn2 } from "node:child_process";
+import { spawn as spawn3 } from "node:child_process";
 import { readFile as readFile2 } from "node:fs/promises";
 import { performance as performance2 } from "node:perf_hooks";
 var DEFAULT_TIMEOUT_MS2 = 6e5;
@@ -28692,7 +28740,7 @@ function runClaude(options) {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS2;
   return new Promise((resolve, reject) => {
     const startedAt = performance2.now();
-    const child = spawn2(
+    const child = spawn3(
       options.claudeBin ?? "claude",
       [
         "-p",
@@ -28752,10 +28800,32 @@ ${stderrText}`;
 }
 
 // src/engines/codex.ts
-import { execFile, spawn as spawn3 } from "node:child_process";
+import { execFile, spawn as spawn4 } from "node:child_process";
 import { readFile as readFile3 } from "node:fs/promises";
 import { performance as performance3 } from "node:perf_hooks";
 import { promisify } from "node:util";
+
+// src/engines/shared/cli-command.ts
+import { access } from "node:fs/promises";
+import { join } from "node:path";
+function cliInvocation(cli, extraArgs) {
+  return { command: cli.command, args: [...cli.args, ...extraArgs] };
+}
+function describeCli(cli) {
+  return [cli.command, ...cli.args].join(" ");
+}
+var CODEX_JS_ENTRY = ["node_modules", "@openai", "codex", "bin", "codex.js"];
+async function resolveCodexCli(repoRoot) {
+  const jsEntry = join(repoRoot, ...CODEX_JS_ENTRY);
+  try {
+    await access(jsEntry);
+    return { command: process.execPath, args: [jsEntry] };
+  } catch {
+    return { command: "codex", args: [] };
+  }
+}
+
+// src/engines/codex.ts
 var DEFAULT_TIMEOUT_MS3 = 6e5;
 function isAgentMessageEvent(value) {
   if (typeof value !== "object" || value === null) return false;
@@ -28799,18 +28869,17 @@ function buildMcpDisableOverrides(listJson) {
     return [];
   }
 }
-async function resolveCodexConfigOverrides(codexBin, runList = defaultRunMcpList) {
+async function resolveCodexConfigOverrides(codexCli, runList = defaultRunMcpList) {
   try {
-    const listJson = await runList(codexBin);
+    const listJson = await runList(codexCli);
     return [...CODEX_CONFIG_OVERRIDES, ...buildMcpDisableOverrides(listJson)];
   } catch {
     return CODEX_CONFIG_OVERRIDES;
   }
 }
-async function defaultRunMcpList(codexBin) {
-  const { stdout } = await promisify(execFile)(codexBin, ["mcp", "list", "--json"], {
-    timeout: 15e3
-  });
+async function defaultRunMcpList(codexCli) {
+  const { command, args } = cliInvocation(codexCli, ["mcp", "list", "--json"]);
+  const { stdout } = await promisify(execFile)(command, args, { timeout: 15e3 });
   return stdout;
 }
 function buildCodexArgs(options) {
@@ -28833,7 +28902,8 @@ function runCodex(options) {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS3;
   return new Promise((resolve, reject) => {
     const startedAt = performance3.now();
-    const child = spawn3(options.codexBin, buildCodexArgs(options), {
+    const invocation = cliInvocation(options.codexCli, buildCodexArgs(options));
+    const child = spawn4(invocation.command, invocation.args, {
       // Strict allow-list env — a delegated worker must not inherit the MCP server's
       // secrets or parent-session vars (see shared/worker-env).
       env: buildWorkerEnv(),
@@ -28937,7 +29007,7 @@ ${items}`;
 
 // src/git/worktree.ts
 import { execFile as execFile2 } from "node:child_process";
-import { join } from "node:path";
+import { join as join2 } from "node:path";
 import { promisify as promisify2 } from "node:util";
 var execFileAsync = promisify2(execFile2);
 async function runGit(cwd, args) {
@@ -28950,7 +29020,7 @@ async function runGit(cwd, args) {
   }
 }
 async function createWorktree(repoRoot, jobId) {
-  const path = join(repoRoot, ".delegate", "worktrees", jobId);
+  const path = join2(repoRoot, ".delegate", "worktrees", jobId);
   const branch = `delegate/${jobId}`;
   await runGit(repoRoot, ["worktree", "add", path, "-b", branch]);
   return { path, branch };
@@ -28979,17 +29049,17 @@ function selectEngine(policy, ledger, exclude) {
 }
 
 // src/jobs/paths.ts
-import { join as join2 } from "node:path";
+import { join as join3 } from "node:path";
 function buildJobPaths(repoRoot, jobId) {
-  const jobDir = join2(repoRoot, ".delegate", "jobs", jobId);
+  const jobDir = join3(repoRoot, ".delegate", "jobs", jobId);
   return {
     jobDir,
-    promptFile: join2(jobDir, "prompt.md"),
-    eventsFile: join2(jobDir, "events.ndjson"),
-    stderrFile: join2(jobDir, "stderr.log"),
-    lastMessageFile: join2(jobDir, "last-message.md"),
-    diffFile: join2(jobDir, "diff.patch"),
-    statusFile: join2(jobDir, "status.json")
+    promptFile: join3(jobDir, "prompt.md"),
+    eventsFile: join3(jobDir, "events.ndjson"),
+    stderrFile: join3(jobDir, "stderr.log"),
+    lastMessageFile: join3(jobDir, "last-message.md"),
+    diffFile: join3(jobDir, "diff.patch"),
+    statusFile: join3(jobDir, "status.json")
   };
 }
 
@@ -28999,35 +29069,36 @@ var SUMMARY_MAX_CHARS = 1500;
 var ALL_ENGINES_AT_CAPACITY_MESSAGE = "All delegation engines are at capacity \u2014 retry after quota cooldown.";
 var ESCALATION_IMPOSSIBLE_MESSAGE = "Escalation impossible: no alternative engine available. Re-delegate without escalate to allow the same engine.";
 var PARENT_DIFF_CONFLICT_MESSAGE = "Parent diff no longer applies onto the current base (the main branch advanced since the parent job). Re-delegate without parent_job_id for a fresh attempt.";
+function cloneCommandFor(platform, source, target) {
+  if (platform === "darwin") return { command: "cp", args: ["-c", "-R", source, target] };
+  if (platform === "linux") {
+    return { command: "cp", args: ["-R", "--reflink=always", source, target] };
+  }
+  return null;
+}
 async function provisionNodeModules(repoRoot, worktreePath) {
-  const source = join3(repoRoot, "node_modules");
-  const target = join3(worktreePath, "node_modules");
-  try {
-    await execFileAsync2("cp", ["-c", "-R", source, target]);
-    console.error("[delegate] job deps: cloned");
-    return;
-  } catch {
+  const source = join4(repoRoot, "node_modules");
+  const target = join4(worktreePath, "node_modules");
+  const clone2 = cloneCommandFor(process.platform, source, target);
+  if (clone2 !== null) {
+    try {
+      await execFileAsync2(clone2.command, [...clone2.args]);
+      console.error("[delegate] job deps: cloned");
+      return;
+    } catch {
+    }
   }
   try {
-    await symlink(source, target);
+    await symlink(source, target, "junction");
     console.error("[delegate] job deps: symlinked");
   } catch {
     console.error("[delegate] job deps: absent");
   }
 }
-async function resolveCodexBin(repoRoot) {
-  const bundledPath = join3(repoRoot, "node_modules", ".bin", "codex");
-  try {
-    await access(bundledPath);
-    return bundledPath;
-  } catch {
-    return "codex";
-  }
-}
 async function resolveAntigravityBin() {
-  const localPath = join3(homedir(), ".local", "bin", "agy");
+  const localPath = join4(homedir(), ".local", "bin", "agy");
   try {
-    await access(localPath);
+    await access2(localPath);
     return localPath;
   } catch {
     return "agy";
@@ -29095,11 +29166,11 @@ function buildDefaultWorkerRunner() {
         model: req.model
       });
     }
-    const codexBin = await resolveCodexBin(req.repoRoot);
-    const configOverrides = await resolveCodexConfigOverrides(codexBin);
+    const codexCli = await resolveCodexCli(req.repoRoot);
+    const configOverrides = await resolveCodexConfigOverrides(codexCli);
     const worker = req.policy.workers.codex;
     return runCodex({
-      codexBin,
+      codexCli,
       configOverrides,
       worktreePath: req.worktreePath,
       prompt: req.prompt,
@@ -29344,8 +29415,6 @@ import { join as join7 } from "node:path";
 
 // src/config/detect.ts
 import { execFile as execFile4 } from "node:child_process";
-import { access as access2 } from "node:fs/promises";
-import { join as join4 } from "node:path";
 var EXEC_MAX_BUFFER_BYTES = 16 * 1024 * 1024;
 function run(command, args) {
   return new Promise((resolvePromise) => {
@@ -29372,34 +29441,27 @@ function run(command, args) {
 function firstLine(text) {
   return text.split(/\r?\n/).find((line) => line.trim().length > 0)?.trim() ?? "";
 }
-async function resolveCodexBin2(repoRoot) {
-  const bundledPath = join4(repoRoot, "node_modules", ".bin", "codex");
-  try {
-    await access2(bundledPath);
-    return bundledPath;
-  } catch {
-    return "codex";
-  }
-}
 async function detectCodex(repoRoot) {
-  const codexBin = await resolveCodexBin2(repoRoot);
-  const status = await run(codexBin, ["login", "status"]);
+  const codexCli = await resolveCodexCli(repoRoot);
+  const invocation = cliInvocation(codexCli, ["login", "status"]);
+  const status = await run(invocation.command, invocation.args);
   if (status.spawnErrorCode !== void 0) {
     return {
       engine: "codex",
       available: false,
       detail: "CLI not found \u2014 run: npm install",
-      executable: codexBin,
+      cli: codexCli,
       reports: [{ status: "fail", message: "codex CLI not found \u2014 run: npm install" }]
     };
   }
-  const binaryReport = { status: "ok", message: `codex binary: ${codexBin}` };
+  const codexLabel = describeCli(codexCli);
+  const binaryReport = { status: "ok", message: `codex binary: ${codexLabel}` };
   if (status.exitCode !== 0) {
     return {
       engine: "codex",
       available: false,
       detail: "not authenticated \u2014 run: npx codex login",
-      executable: codexBin,
+      cli: codexCli,
       reports: [
         binaryReport,
         { status: "fail", message: "codex not authenticated \u2014 run: npx codex login" }
@@ -29409,8 +29471,8 @@ async function detectCodex(repoRoot) {
   return {
     engine: "codex",
     available: true,
-    detail: `binary: ${codexBin}`,
-    executable: codexBin,
+    detail: `binary: ${codexLabel}`,
+    cli: codexCli,
     reports: [binaryReport, { status: "ok", message: "codex authenticated" }]
   };
 }
@@ -29474,6 +29536,34 @@ async function detectAuthenticatedProviders(repoRoot) {
     antigravity: { available: antigravity.available, detail: antigravity.detail }
   };
 }
+
+// src/config/model-catalog.ts
+var MODEL_SUGGESTIONS = {
+  codex: [{ id: "gpt-5.6-sol", note: "general coding default" }],
+  claude: [
+    { id: "haiku", note: "fastest, light tasks" },
+    { id: "sonnet", note: "balanced default" },
+    { id: "opus", note: "deepest reasoning" }
+  ],
+  antigravity: [
+    { id: "gemini-3.5-flash-low", note: "fastest, light tasks" },
+    { id: "gemini-3.5-flash-medium" },
+    { id: "gemini-3.5-flash-high" },
+    { id: "gemini-3.1-pro-low" },
+    { id: "gemini-3.1-pro-high" },
+    { id: "claude-sonnet-4-6", note: "balanced default" },
+    { id: "claude-opus-4-6-thinking", note: "deepest reasoning" },
+    { id: "gpt-oss-120b-medium" }
+  ]
+};
+var TIER_SUGGESTIONS = {
+  claude: { light: "haiku", standard: "sonnet", heavy: "opus" },
+  antigravity: {
+    light: "gemini-3.5-flash-low",
+    standard: "claude-sonnet-4-6",
+    heavy: "claude-opus-4-6-thinking"
+  }
+};
 
 // src/config/policy-writer.ts
 var import_yaml2 = __toESM(require_dist2(), 1);
@@ -29676,12 +29766,20 @@ function summarizePolicy(policy) {
     ...Object.keys(modelTiers).length > 0 ? { modelTiers } : {}
   };
 }
+function providerChoices(engine, detection) {
+  const tiers = TIER_SUGGESTIONS[engine];
+  return {
+    available: detection.available,
+    suggestedModels: MODEL_SUGGESTIONS[engine],
+    ...tiers === void 0 ? {} : { suggestedTiers: tiers }
+  };
+}
 function buildConfigureDelegationDetectPayload(providers, currentPolicy) {
   return {
     providers: {
-      codex: { available: providers.codex.available },
-      claude: { available: providers.claude.available },
-      antigravity: { available: providers.antigravity.available }
+      codex: providerChoices("codex", providers.codex),
+      claude: providerChoices("claude", providers.claude),
+      antigravity: providerChoices("antigravity", providers.antigravity)
     },
     currentPolicy: currentPolicy === null ? null : summarizePolicy(currentPolicy)
   };
@@ -29708,7 +29806,7 @@ async function writeDelegationPolicy(repoRoot, input) {
 var DELEGATE_TASK_DESCRIPTION = "Delegate a bounded, well-specified implementation subtask to an isolated worker. Use for well-scoped implementation/tests/refactor tasks; keep architecture and validation yourself. An optional effort hint (light | standard | heavy) selects the worker model tier when configured. Returns immediately with a job_id while the worker runs in an isolated git worktree in the background. Poll check_delegations for progress; fetch the outcome with get_delegation_result. To revise a rejected attempt, set parent_job_id to its session-scoped job id and optionally set feedback to the reviewer feedback; set escalate=true to route away from the engine that produced the parent attempt.";
 var CHECK_DELEGATIONS_DESCRIPTION = "List all delegated jobs in this session with their status (queued | running | succeeded | failed). Read-only, instant.";
 var GET_DELEGATION_RESULT_DESCRIPTION = "Fetch the outcome of a delegated job by job_id. While queued/running returns the status; once finished returns the distilled summary + diff for review.";
-var CONFIGURE_DELEGATION_DESCRIPTION = "Inspect available delegation workers and current routing settings, or update the ordered routing chain and worker model selections. Detection performs local checks only and does not run a worker.";
+var CONFIGURE_DELEGATION_DESCRIPTION = "Inspect available delegation workers and current routing settings, or update the ordered routing chain and worker model selections. Detection performs local checks only and does not run a worker; its payload includes per-provider suggested models and effort-tier presets to offer during configuration (suggestions only \u2014 any model id the provider accepts is valid).";
 function formatDiffSection(diff, diffPath) {
   const diffText = diff ?? "";
   if (diffText.length >= DIFF_INLINE_LIMIT_CHARS) {

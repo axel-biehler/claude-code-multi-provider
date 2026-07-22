@@ -26,7 +26,10 @@ Then open the repo in **Claude Code**. The `delegate` server is auto-registered 
 [.mcp.json](.mcp.json) — confirm with `/mcp`, then call `delegate_task`.
 
 `npm run setup` is idempotent; re-run it any time. On a TTY it runs the interactive
-`npm run configure` flow; in automation it keeps the copy-only setup behavior.
+`npm run configure` flow — provider order, then a model per provider picked from
+suggested ids (free-form ids stay valid), then optional per-effort tiers; in automation
+it keeps the copy-only setup behavior. The script is plain Node: it behaves the same
+from macOS/Linux shells and Windows PowerShell/cmd.
 
 ## Install as a Claude Code plugin
 
@@ -41,7 +44,8 @@ The plugin bundles the MCP server (one self-contained file), the `delegate` and
 `delegate-init` skills, and the `delegation-manager` subagent. It operates on whatever
 project you have open (`$CLAUDE_PROJECT_DIR`) — worktrees, `policy.yaml`, and `.delegate/`
 all live in that repo. Run `/delegate-init` to detect the available providers, choose their
-order and models, and write `policy.yaml` through the bundled tool. Without a policy it uses
+order and models — it proposes suggested models per provider and optional per-effort
+tiers — and write `policy.yaml` through the bundled tool. Without a policy it uses
 the defaults.
 
 The worker CLIs are **not** bundled (they're heavy/native), so a plugin user still needs:
@@ -63,6 +67,20 @@ The worker CLIs are **not** bundled (they're heavy/native), so a plugin user sti
 - *(optional)* **A Claude seat** for the fallback worker — `claude setup-token`. The
   chain works on Codex alone; Claude and Antigravity tiers only engage when configured.
 - *(optional)* **Antigravity `agy`** for the third worker; it is opt-in through `policy.yaml`.
+
+## Platform support
+
+- **macOS** — primary target; worktree deps are APFS copy-on-write clones.
+- **Linux** — supported; worktree deps clone via reflink on btrfs/XFS and fall back to a
+  symlink elsewhere.
+- **Windows** — `npm run setup`, `npm run configure`, and the bundled Codex worker are
+  built to run natively (PowerShell/cmd): everything is plain Node, the codex CLI is
+  invoked through Node directly (no `.cmd` shim), the worker env allow-list passes the
+  required Windows variables, worktree deps fall back to a directory junction (no admin
+  rights needed), and the timeout guard tree-kills the worker so a native codex child
+  isn't orphaned. The Claude worker needs the native `claude` installer (`claude.exe` on
+  PATH). Native Windows isn't CI-verified yet — treat it as best-effort; WSL2 remains the
+  most-tested route.
 
 ## Using it
 
@@ -91,15 +109,19 @@ with an iterative review loop, use the `delegation-manager` subagent.
 
 Delegation is provider-neutral — the tools never expose which engine ran. From a clone,
 run `npm run configure` to detect available providers and interactively choose their order
-and models. Its merge-safe writer updates those selections in `policy.yaml` without
-dropping other fields. You can also edit the local, gitignored file by hand (copy
-`policy.example.yaml` to start):
+and models: it proposes suggested model ids per provider (any other id stays valid) and can
+set optional per-effort tiers. Its merge-safe writer updates those selections in
+`policy.yaml` without dropping other fields. You can also edit the local, gitignored file
+by hand (copy `policy.example.yaml` to start):
 
 - `chain:` — ordered provider fallback: `[codex]`, `[claude]`, `[antigravity]`, or
   `[codex, claude, antigravity]`. Set it
   to whatever you've authenticated; `npm run preflight` reports what's usable on your machine.
 - `workers.<provider>.model:` — the model per provider (a codex model id, a Claude alias
   like `sonnet`, or an Antigravity model id), plus per-provider budgets and timeouts.
+- `workers.<provider>.models.{light,standard,heavy}:` — optional per-effort tiers;
+  `delegate_task`'s engine-neutral `effort` hint picks the tier at job time, and an unset
+  tier falls back to `model`.
 
 Quotas and artifact retention live in the same file. Every field is optional; an absent
 file means the defaults documented in [policy.example.yaml](policy.example.yaml).

@@ -3,6 +3,8 @@ import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { detectAuthenticatedProvider } from '../src/config/detect'
 import { classifyAntigravityFailure, parseAntigravityJson } from '../src/engines/antigravity'
+import { cliInvocation } from '../src/engines/shared/cli-command'
+import type { CliCommand } from '../src/engines/shared/cli-command'
 import { classifyClaudeFailure, parseClaudeJson } from '../src/engines/claude'
 import { classifyCodexFailure } from '../src/engines/codex'
 import { buildWorkerEnv } from '../src/engines/shared/worker-env'
@@ -162,7 +164,7 @@ async function checkPolicy(reporter: Reporter, repoRoot: string): Promise<Policy
 interface StaticCheckOutcome {
   readonly engine: EngineName
   readonly staticOk: boolean
-  readonly codexBin?: string
+  readonly codexCli?: CliCommand
 }
 
 async function checkEngineStatic(
@@ -177,7 +179,7 @@ async function checkEngineStatic(
   return {
     engine,
     staticOk: detection.available,
-    codexBin: engine === 'codex' ? detection.executable : undefined,
+    codexCli: engine === 'codex' ? detection.cli : undefined,
   }
 }
 
@@ -213,14 +215,21 @@ function describeCodexProbeFailure(kind: FailureKind, result: RunResult): string
   return describeOtherFailure(result)
 }
 
-async function probeCodex(reporter: Reporter, codexBin: string): Promise<boolean> {
+async function probeCodex(reporter: Reporter, codexCli: CliCommand): Promise<boolean> {
   // -c mcp_servers={} keeps the user's personal ~/.codex/config.toml MCP servers out of
   // the probe (same override the delegation adapter uses).
-  const result = await run(
-    codexBin,
-    ['exec', '--json', '--skip-git-repo-check', '-c', 'mcp_servers={}', CODEX_PROBE_PROMPT],
-    { timeoutMs: PROBE_TIMEOUT_MS, env: buildWorkerEnv() },
-  )
+  const invocation = cliInvocation(codexCli, [
+    'exec',
+    '--json',
+    '--skip-git-repo-check',
+    '-c',
+    'mcp_servers={}',
+    CODEX_PROBE_PROMPT,
+  ])
+  const result = await run(invocation.command, invocation.args, {
+    timeoutMs: PROBE_TIMEOUT_MS,
+    env: buildWorkerEnv(),
+  })
   if (result.exitCode === 0) {
     reporter.ok('codex probe: usable')
     return true
@@ -323,7 +332,9 @@ async function probeAntigravity(reporter: Reporter): Promise<boolean> {
 // known-broken setup — null keeps the static verdict authoritative for it.
 async function runProbe(reporter: Reporter, outcome: StaticCheckOutcome): Promise<boolean | null> {
   if (!outcome.staticOk) return null
-  if (outcome.engine === 'codex') return probeCodex(reporter, outcome.codexBin ?? 'codex')
+  if (outcome.engine === 'codex') {
+    return probeCodex(reporter, outcome.codexCli ?? { command: 'codex', args: [] })
+  }
   if (outcome.engine === 'antigravity') return probeAntigravity(reporter)
   return probeClaude(reporter)
 }

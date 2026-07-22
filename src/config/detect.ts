@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
-import { access } from 'node:fs/promises'
-import { join } from 'node:path'
+import { cliInvocation, describeCli, resolveCodexCli } from '../engines/shared/cli-command'
+import type { CliCommand } from '../engines/shared/cli-command'
 import type { EngineName } from '../types'
 
 const EXEC_MAX_BUFFER_BYTES = 16 * 1024 * 1024
@@ -17,7 +17,7 @@ export interface DetectionReport {
 
 export interface ProviderStaticDetection extends ProviderDetection {
   readonly engine: EngineName
-  readonly executable?: string
+  readonly cli?: CliCommand
   readonly reports: readonly DetectionReport[]
 }
 
@@ -56,36 +56,28 @@ function firstLine(text: string): string {
   return text.split(/\r?\n/).find((line) => line.trim().length > 0)?.trim() ?? ''
 }
 
-async function resolveCodexBin(repoRoot: string): Promise<string> {
-  const bundledPath = join(repoRoot, 'node_modules', '.bin', 'codex')
-  try {
-    await access(bundledPath)
-    return bundledPath
-  } catch {
-    return 'codex'
-  }
-}
-
 async function detectCodex(repoRoot: string): Promise<ProviderStaticDetection> {
-  const codexBin = await resolveCodexBin(repoRoot)
-  const status = await run(codexBin, ['login', 'status'])
+  const codexCli = await resolveCodexCli(repoRoot)
+  const invocation = cliInvocation(codexCli, ['login', 'status'])
+  const status = await run(invocation.command, invocation.args)
   if (status.spawnErrorCode !== undefined) {
     return {
       engine: 'codex',
       available: false,
       detail: 'CLI not found — run: npm install',
-      executable: codexBin,
+      cli: codexCli,
       reports: [{ status: 'fail', message: 'codex CLI not found — run: npm install' }],
     }
   }
 
-  const binaryReport = { status: 'ok', message: `codex binary: ${codexBin}` } as const
+  const codexLabel = describeCli(codexCli)
+  const binaryReport = { status: 'ok', message: `codex binary: ${codexLabel}` } as const
   if (status.exitCode !== 0) {
     return {
       engine: 'codex',
       available: false,
       detail: 'not authenticated — run: npx codex login',
-      executable: codexBin,
+      cli: codexCli,
       reports: [
         binaryReport,
         { status: 'fail', message: 'codex not authenticated — run: npx codex login' },
@@ -96,8 +88,8 @@ async function detectCodex(repoRoot: string): Promise<ProviderStaticDetection> {
   return {
     engine: 'codex',
     available: true,
-    detail: `binary: ${codexBin}`,
-    executable: codexBin,
+    detail: `binary: ${codexLabel}`,
+    cli: codexCli,
     reports: [binaryReport, { status: 'ok', message: 'codex authenticated' }],
   }
 }

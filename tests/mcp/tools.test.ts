@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
 import { parse } from 'yaml'
+import { MODEL_SUGGESTIONS, TIER_SUGGESTIONS } from '../../src/config/model-catalog'
 import {
   buildCheckDelegationsPayload,
   buildConfigureDelegationDetectPayload,
@@ -56,7 +57,7 @@ describe('configure_delegation logic', () => {
     )
   })
 
-  test('builds the detect payload with provider availability and configured models only', () => {
+  test('builds the detect payload with availability, model suggestions and configured models', () => {
     // Arrange
     const providers = {
       codex: { available: true, detail: 'authenticated' },
@@ -77,9 +78,17 @@ describe('configure_delegation logic', () => {
     // Assert
     expect(payload).toEqual({
       providers: {
-        codex: { available: true },
-        claude: { available: false },
-        antigravity: { available: true },
+        codex: { available: true, suggestedModels: MODEL_SUGGESTIONS.codex },
+        claude: {
+          available: false,
+          suggestedModels: MODEL_SUGGESTIONS.claude,
+          suggestedTiers: TIER_SUGGESTIONS.claude,
+        },
+        antigravity: {
+          available: true,
+          suggestedModels: MODEL_SUGGESTIONS.antigravity,
+          suggestedTiers: TIER_SUGGESTIONS.antigravity,
+        },
       },
       currentPolicy: {
         chain: ['codex', 'antigravity'],

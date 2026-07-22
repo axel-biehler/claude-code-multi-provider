@@ -26,7 +26,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "setup": "bash scripts/setup.sh",
+    "setup": "node scripts/setup.mjs",
     "configure": "tsx scripts/configure.ts",
     "codex-login": "codex login",
     "build:plugin": "bash scripts/build-plugin.sh",

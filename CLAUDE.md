@@ -72,8 +72,25 @@ Engine selection: copy `policy.example.yaml` → `policy.yaml` (gitignored) and 
 - Codex workers disable every personal `~/.codex` MCP server **per entry** (`codex mcp list
   --json` → `-c mcp_servers.<name>.enabled=false` each): the blanket `-c mcp_servers={}` is a
   deep-merge **no-op** on codex 0.144.x (Phase-2 finding 6) and MCP server processes run
-  outside the worker sandbox. Worktree `node_modules` is an **APFS clone** (worker writes
-  stay private), symlink only as non-APFS fallback.
+  outside the worker sandbox. Worktree `node_modules` is a **copy-on-write clone** (APFS
+  `cp -c` on macOS, `cp --reflink=always` on Linux; worker writes stay private), with a
+  `'junction'`-type symlink as the no-clone fallback (Windows needs no admin; the type is
+  ignored on POSIX).
+- Worker CLIs are spawned **without a shell** (prompts travel as argv), so npm's Windows
+  `.cmd` shims are unusable: the bundled codex runs as `process.execPath` +
+  `@openai/codex/bin/codex.js` via `resolveCodexCli` (`src/engines/shared/cli-command.ts`,
+  `CliCommand` = command + leading args) on every platform. That JS entry is itself a
+  wrapper that re-spawns the native codex as a grandchild, so the timeout guard
+  (`armTimeoutGuard`, `src/engines/shared/worker-process.ts`) can't rely on `child.kill()`
+  on win32 (signals are ignored there → the grandchild orphans): on win32 it kills the
+  whole tree by pid via `taskkill /T`, POSIX keeps SIGTERM→SIGKILL. `buildWorkerEnv` is
+  platform-aware too: on win32 it also passes the Windows OS vars (SystemRoot, USERPROFILE,
+  APPDATA, TEMP, …) and matches names case-insensitively.
+- Init-flow model suggestions (interactive `npm run configure`, `delegate-init` skill via
+  the `configure_delegation` detect payload) live in `src/config/model-catalog.ts` —
+  curated hints only, refresh on vendor releases; free-form model ids stay valid.
+  `npm run setup` is plain Node (`scripts/setup.mjs`) so install works from Windows
+  PowerShell/cmd too; only the maintainer-side `npm run build:plugin` still needs bash.
 - Antigravity workers use `agy -p --output-format json`; the final message is `response` and
   success is `status === "SUCCESS"`. Always pass `--print-timeout` (its 5m default is shorter
   than a job) and `--dangerously-skip-permissions` (non-TTY autonomy). **`--add-dir <worktree>`
