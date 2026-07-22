@@ -48,7 +48,9 @@ export async function writePolicyFile(repoRoot: string, patch: PolicyPatch): Pro
   const policyPath = join(repoRoot, 'policy.yaml')
   const examplePath = join(repoRoot, 'policy.example.yaml')
 
-  let current: string
+  // null → renderPolicyYaml seeds from DEFAULT_POLICY. A plugin install operates on the
+  // user's project, which has no policy.example.yaml — only a dev clone seeds from it.
+  let current: string | null
   try {
     current = await readFile(policyPath, 'utf8')
   } catch (error) {
@@ -56,7 +58,8 @@ export async function writePolicyFile(repoRoot: string, patch: PolicyPatch): Pro
     try {
       current = await readFile(examplePath, 'utf8')
     } catch (exampleError) {
-      throw readError(examplePath, exampleError)
+      if (!isMissingFile(exampleError)) throw readError(examplePath, exampleError)
+      current = null
     }
   }
 

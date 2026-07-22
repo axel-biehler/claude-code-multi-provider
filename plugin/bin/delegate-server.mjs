@@ -29678,7 +29678,8 @@ async function writePolicyFile(repoRoot, patch) {
     try {
       current = await readFile6(examplePath, "utf8");
     } catch (exampleError) {
-      throw readError(examplePath, exampleError);
+      if (!isMissingFile2(exampleError)) throw readError(examplePath, exampleError);
+      current = null;
     }
   }
   const rendered = renderPolicyYaml(current, patch);
