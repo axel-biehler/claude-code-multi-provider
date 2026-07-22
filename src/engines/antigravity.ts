@@ -62,6 +62,12 @@ export function buildAntigravityArgs(options: RunAntigravityOptions): string[] {
   return [
     '-p',
     options.prompt,
+    // agy resolves its workspace from --add-dir, NOT cwd: with an empty workspace a
+    // headless `-p` run writes into agy's own scratch dir (or a stale registered
+    // workspace), escaping the worktree and leaving collectDiff empty. Pinning the
+    // worktree here is what keeps the worker's edits inside the sandbox + in the diff.
+    '--add-dir',
+    options.worktreePath,
     '--output-format',
     'json',
     '--dangerously-skip-permissions',

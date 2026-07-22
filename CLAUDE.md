@@ -76,10 +76,14 @@ Engine selection: copy `policy.example.yaml` → `policy.yaml` (gitignored) and 
   stay private), symlink only as non-APFS fallback.
 - Antigravity workers use `agy -p --output-format json`; the final message is `response` and
   success is `status === "SUCCESS"`. Always pass `--print-timeout` (its 5m default is shorter
-  than a job) and `--dangerously-skip-permissions` (non-TTY autonomy). Auth resolves through
-  `HOME` from `~/.gemini`/keyring, so `buildWorkerEnv` needs no new allow-list key. There is no
-  per-invocation MCP-disable flag: personal MCP servers in `~/.gemini/settings.json` are not
-  isolated beyond the worktree, sanitized env and timeout guard; bespoke isolation is a follow-up.
+  than a job) and `--dangerously-skip-permissions` (non-TTY autonomy). **`--add-dir <worktree>`
+  is mandatory**: `agy` resolves its workspace from `--add-dir`, NOT cwd — with an empty
+  workspace a headless `-p` run writes into its own `~/.gemini/antigravity-cli/scratch` (or a
+  stale registered workspace), so files escape the worktree and `collectDiff` returns empty.
+  Auth resolves through `HOME` from `~/.gemini`/keyring, so `buildWorkerEnv` needs no new
+  allow-list key. There is no per-invocation MCP-disable flag: personal MCP servers in
+  `~/.gemini/settings.json` are not isolated beyond the worktree, sanitized env and timeout
+  guard; bespoke isolation is a follow-up.
 - Personal project: public npm registry pinned in `.npmrc`; **never** use a private/corporate registry.
 - Engine selection lives in the `policy.yaml` router (chain + per-engine quotas); quota/auth
   failures reroute to the next engine. Keep results engine-neutral ("delegated worker", not

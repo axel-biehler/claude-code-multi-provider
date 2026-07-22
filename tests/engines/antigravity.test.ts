@@ -94,12 +94,22 @@ describe('buildAntigravityArgs', () => {
     expect(args).toEqual([
       '-p',
       'Implement the requested change',
+      '--add-dir',
+      '/tmp/worktree',
       '--output-format',
       'json',
       '--dangerously-skip-permissions',
       '--print-timeout',
       '120s',
     ])
+  })
+
+  test('pins the worktree as the agy workspace via --add-dir', () => {
+    const args = buildAntigravityArgs({ ...baseOptions, worktreePath: '/tmp/sandbox-xyz' })
+
+    const idx = args.indexOf('--add-dir')
+    expect(idx).toBeGreaterThanOrEqual(0)
+    expect(args[idx + 1]).toBe('/tmp/sandbox-xyz')
   })
 
   test('includes the model in single-token form when configured', () => {
