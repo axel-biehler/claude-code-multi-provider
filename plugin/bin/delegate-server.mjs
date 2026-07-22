@@ -28441,12 +28441,13 @@ var StdioServerTransport = class {
 
 // src/jobs/executor.ts
 import { execFile as execFile3 } from "node:child_process";
-import { access, mkdir, readFile as readFile3, symlink, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile as readFile4, symlink, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join as join3 } from "node:path";
-import { performance as performance3 } from "node:perf_hooks";
+import { performance as performance4 } from "node:perf_hooks";
 import { promisify as promisify3 } from "node:util";
 
-// src/engines/claude.ts
+// src/engines/antigravity.ts
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
@@ -28570,8 +28571,102 @@ function buildWorkerEnv(source = process.env) {
   return Object.fromEntries(entries);
 }
 
-// src/engines/claude.ts
+// src/engines/antigravity.ts
 var DEFAULT_TIMEOUT_MS = 6e5;
+function parseAntigravityJson(raw) {
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) {
+      return { lastMessage: null, status: null };
+    }
+    const result = parsed;
+    return {
+      lastMessage: typeof result.response === "string" ? result.response.trim() : null,
+      status: typeof result.status === "string" ? result.status : null
+    };
+  } catch {
+    return { lastMessage: null, status: null };
+  }
+}
+function classifyAntigravityFailure(input) {
+  if (input.exitCode === 0) return void 0;
+  return classifyFailureText(`${input.resultJson}
+${input.stderrText}`);
+}
+function buildAntigravityArgs(options) {
+  return [
+    "-p",
+    options.prompt,
+    // agy resolves its workspace from --add-dir, NOT cwd: with an empty workspace a
+    // headless `-p` run writes into agy's own scratch dir (or a stale registered
+    // workspace), escaping the worktree and leaving collectDiff empty. Pinning the
+    // worktree here is what keeps the worker's edits inside the sandbox + in the diff.
+    "--add-dir",
+    options.worktreePath,
+    "--output-format",
+    "json",
+    "--dangerously-skip-permissions",
+    "--print-timeout",
+    `${Math.ceil((options.timeoutMs ?? DEFAULT_TIMEOUT_MS) / 1e3)}s`,
+    ...options.model === void 0 ? [] : [`--model=${options.model}`]
+  ];
+}
+function runAntigravity(options) {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  return new Promise((resolve, reject) => {
+    const startedAt = performance.now();
+    const child = spawn(options.agyBin ?? "agy", buildAntigravityArgs(options), {
+      cwd: options.worktreePath,
+      env: buildWorkerEnv(),
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    const stdoutDone = drainToFile(child.stdout, options.paths.eventsFile);
+    const stderrDone = drainToFile(child.stderr, options.paths.stderrFile);
+    const streamsSettled = () => Promise.allSettled([stdoutDone, stderrDone]);
+    const guard = armTimeoutGuard(child, timeoutMs);
+    child.on("error", (error2) => {
+      guard.disarm();
+      void streamsSettled().then(() => reject(error2));
+    });
+    child.on("close", (code) => {
+      guard.disarm();
+      if (guard.didTimeout()) {
+        console.error(
+          `[delegate] worker exceeded ${timeoutMs}ms and was terminated \u2014 treating exit as failure`
+        );
+      }
+      void streamsSettled().then(
+        () => Promise.all([
+          readFile(options.paths.eventsFile, "utf8").catch(() => ""),
+          readFile(options.paths.stderrFile, "utf8").catch(() => "")
+        ])
+      ).then(([raw, stderrText]) => {
+        const exitCode = unmaskTimedOutExit(code ?? -1, guard.didTimeout());
+        const failureKind = classifyAntigravityFailure({
+          exitCode,
+          resultJson: raw,
+          stderrText
+        });
+        const text = `${raw}
+${stderrText}`;
+        const retryAtMs = failureKind === "quota" ? parseRetryAt(text, Date.now()) : void 0;
+        resolve({
+          exitCode,
+          lastMessage: parseAntigravityJson(raw).lastMessage,
+          durationMs: performance.now() - startedAt,
+          failureKind,
+          ...retryAtMs === void 0 ? {} : { retryAtMs }
+        });
+      });
+    });
+  });
+}
+
+// src/engines/claude.ts
+import { spawn as spawn2 } from "node:child_process";
+import { readFile as readFile2 } from "node:fs/promises";
+import { performance as performance2 } from "node:perf_hooks";
+var DEFAULT_TIMEOUT_MS2 = 6e5;
 var WORKER_MODEL = "sonnet";
 var WORKER_BUDGET_USD = "2";
 var WORKER_ALLOWED_TOOLS = "Bash(npx vitest:*),Bash(npx tsc:*),Bash(rtk vitest:*),Bash(rtk tsc:*)";
@@ -28594,10 +28689,10 @@ function parseClaudeJson(raw) {
   }
 }
 function runClaude(options) {
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS2;
   return new Promise((resolve, reject) => {
-    const startedAt = performance.now();
-    const child = spawn(
+    const startedAt = performance2.now();
+    const child = spawn2(
       options.claudeBin ?? "claude",
       [
         "-p",
@@ -28635,8 +28730,8 @@ function runClaude(options) {
       }
       void streamsSettled().then(
         () => Promise.all([
-          readFile(options.paths.eventsFile, "utf8").catch(() => ""),
-          readFile(options.paths.stderrFile, "utf8").catch(() => "")
+          readFile2(options.paths.eventsFile, "utf8").catch(() => ""),
+          readFile2(options.paths.stderrFile, "utf8").catch(() => "")
         ])
       ).then(([raw, stderrText]) => {
         const exitCode = unmaskTimedOutExit(code ?? -1, guard.didTimeout());
@@ -28647,7 +28742,7 @@ ${stderrText}`;
         resolve({
           exitCode,
           lastMessage: parseClaudeJson(raw).lastMessage,
-          durationMs: performance.now() - startedAt,
+          durationMs: performance2.now() - startedAt,
           failureKind,
           ...retryAtMs === void 0 ? {} : { retryAtMs }
         });
@@ -28657,11 +28752,11 @@ ${stderrText}`;
 }
 
 // src/engines/codex.ts
-import { execFile, spawn as spawn2 } from "node:child_process";
-import { readFile as readFile2 } from "node:fs/promises";
-import { performance as performance2 } from "node:perf_hooks";
+import { execFile, spawn as spawn3 } from "node:child_process";
+import { readFile as readFile3 } from "node:fs/promises";
+import { performance as performance3 } from "node:perf_hooks";
 import { promisify } from "node:util";
-var DEFAULT_TIMEOUT_MS2 = 6e5;
+var DEFAULT_TIMEOUT_MS3 = 6e5;
 function isAgentMessageEvent(value) {
   if (typeof value !== "object" || value === null) return false;
   const event = value;
@@ -28735,10 +28830,10 @@ function buildCodexArgs(options) {
   ];
 }
 function runCodex(options) {
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS2;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS3;
   return new Promise((resolve, reject) => {
-    const startedAt = performance2.now();
-    const child = spawn2(options.codexBin, buildCodexArgs(options), {
+    const startedAt = performance3.now();
+    const child = spawn3(options.codexBin, buildCodexArgs(options), {
       // Strict allow-list env — a delegated worker must not inherit the MCP server's
       // secrets or parent-session vars (see shared/worker-env).
       env: buildWorkerEnv(),
@@ -28773,14 +28868,14 @@ async function finalizeResult(code, paths, startedAt, timedOut) {
   return {
     exitCode,
     lastMessage,
-    durationMs: performance2.now() - startedAt,
+    durationMs: performance3.now() - startedAt,
     ...failure
   };
 }
 async function resolveFailure(exitCode, paths) {
   if (exitCode === 0) return { failureKind: void 0 };
-  const eventsNdjson = await readFile2(paths.eventsFile, "utf8").catch(() => "");
-  const stderrText = await readFile2(paths.stderrFile, "utf8").catch(() => "");
+  const eventsNdjson = await readFile3(paths.eventsFile, "utf8").catch(() => "");
+  const stderrText = await readFile3(paths.stderrFile, "utf8").catch(() => "");
   const text = `${eventsNdjson}
 ${stderrText}`;
   const failureKind = classifyCodexFailure({ exitCode, eventsNdjson, stderrText });
@@ -28792,10 +28887,10 @@ ${stderrText}`;
 }
 async function resolveLastMessage(paths) {
   try {
-    const raw = await readFile2(paths.lastMessageFile, "utf8");
+    const raw = await readFile3(paths.lastMessageFile, "utf8");
     return raw.trim();
   } catch {
-    const events = await readFile2(paths.eventsFile, "utf8").catch(() => "");
+    const events = await readFile3(paths.eventsFile, "utf8").catch(() => "");
     return parseEvents(events).lastMessage;
   }
 }
@@ -28929,6 +29024,15 @@ async function resolveCodexBin(repoRoot) {
     return "codex";
   }
 }
+async function resolveAntigravityBin() {
+  const localPath = join3(homedir(), ".local", "bin", "agy");
+  try {
+    await access(localPath);
+    return localPath;
+  } catch {
+    return "agy";
+  }
+}
 function truncateSummary(lastMessage) {
   const raw = lastMessage ?? "(worker returned no message)";
   return raw.length > SUMMARY_MAX_CHARS ? `${raw.slice(0, SUMMARY_MAX_CHARS)}\u2026` : raw;
@@ -28980,6 +29084,17 @@ function buildDefaultWorkerRunner() {
         maxBudgetUsd: worker2.maxBudgetUsd
       });
     }
+    if (req.engine === "antigravity") {
+      const worker2 = req.policy.workers.antigravity;
+      return runAntigravity({
+        agyBin: await resolveAntigravityBin(),
+        worktreePath: req.worktreePath,
+        prompt: req.prompt,
+        paths: req.paths,
+        timeoutMs: worker2.timeoutMs,
+        model: req.model
+      });
+    }
     const codexBin = await resolveCodexBin(req.repoRoot);
     const configOverrides = await resolveCodexConfigOverrides(codexBin);
     const worker = req.policy.workers.codex;
@@ -29007,7 +29122,7 @@ async function runEngineChain(deps, runWorker, jobId, prompt, paths, revision, e
       worktree = await createWorktreeSerialized(deps.repoRoot, jobId);
       await provisionNodeModules(deps.repoRoot, worktree.path);
       if (revision !== void 0) {
-        const parentDiff = await readFile3(revision.parentDiffPath, "utf8");
+        const parentDiff = await readFile4(revision.parentDiffPath, "utf8");
         if (parentDiff.trim().length > 0) {
           try {
             await execFileAsync2(
@@ -29061,7 +29176,7 @@ async function runEngineChain(deps, runWorker, jobId, prompt, paths, revision, e
   }
 }
 async function executeJob(deps, jobId, task, revision) {
-  const startedAt = performance3.now();
+  const startedAt = performance4.now();
   const runWorker = deps.runWorker ?? buildDefaultWorkerRunner();
   const paths = buildJobPaths(deps.repoRoot, jobId);
   await mkdir(paths.jobDir, { recursive: true });
@@ -29092,7 +29207,7 @@ async function executeJob(deps, jobId, task, revision) {
       diffPath: paths.diffFile,
       diff,
       exitCode: outcome.exitCode,
-      durationMs: performance3.now() - startedAt,
+      durationMs: performance4.now() - startedAt,
       engine
     };
   } catch (error2) {
@@ -29319,31 +29434,58 @@ async function detectClaude() {
     reports: [{ status: "ok", message: `claude binary: ${version2}` }]
   };
 }
+async function detectAntigravity() {
+  const result = await run("agy", ["--version"]);
+  if (result.spawnErrorCode !== void 0 || result.exitCode !== 0) {
+    return {
+      engine: "antigravity",
+      available: false,
+      detail: "agy CLI not found on PATH \u2014 install the Antigravity CLI",
+      reports: [
+        {
+          status: "fail",
+          message: "agy CLI not found on PATH \u2014 install the Antigravity CLI"
+        }
+      ]
+    };
+  }
+  const version2 = firstLine(result.stdout);
+  return {
+    engine: "antigravity",
+    available: true,
+    detail: `binary: ${version2}; live authentication check requires: npm run preflight`,
+    reports: [{ status: "ok", message: `antigravity binary: ${version2}` }]
+  };
+}
 function detectAuthenticatedProvider(engine, repoRoot) {
-  return engine === "codex" ? detectCodex(repoRoot) : detectClaude();
+  if (engine === "codex") return detectCodex(repoRoot);
+  if (engine === "antigravity") return detectAntigravity();
+  return detectClaude();
 }
 async function detectAuthenticatedProviders(repoRoot) {
-  const [codex, claude] = await Promise.all([
+  const [codex, claude, antigravity] = await Promise.all([
     detectAuthenticatedProvider("codex", repoRoot),
-    detectAuthenticatedProvider("claude", repoRoot)
+    detectAuthenticatedProvider("claude", repoRoot),
+    detectAuthenticatedProvider("antigravity", repoRoot)
   ]);
   return {
     codex: { available: codex.available, detail: codex.detail },
-    claude: { available: claude.available, detail: claude.detail }
+    claude: { available: claude.available, detail: claude.detail },
+    antigravity: { available: antigravity.available, detail: antigravity.detail }
   };
 }
 
 // src/config/policy-writer.ts
 var import_yaml2 = __toESM(require_dist2(), 1);
-import { readFile as readFile5, writeFile as writeFile3 } from "node:fs/promises";
+import { readFile as readFile6, writeFile as writeFile3 } from "node:fs/promises";
 import { join as join6 } from "node:path";
 
 // src/routing/policy.ts
 var import_yaml = __toESM(require_dist2(), 1);
-import { readFile as readFile4 } from "node:fs/promises";
+import { readFile as readFile5 } from "node:fs/promises";
 import { join as join5 } from "node:path";
 var POLICY_FILE_NAME = "policy.yaml";
-var EngineNameSchema = external_exports.enum(["codex", "claude"]);
+var EngineNameSchema = external_exports.enum(["codex", "claude", "antigravity"]);
 var EffortSchema = external_exports.enum(["light", "standard", "heavy"]);
 var ModelIdSchema = external_exports.string().min(1).refine((value) => !value.startsWith("-"), { message: 'model id must not start with "-"' });
 var QuotaConfigSchema = external_exports.object({
@@ -29365,11 +29507,17 @@ var PolicySchema = external_exports.object({
       models: external_exports.record(EffortSchema, ModelIdSchema).optional(),
       maxBudgetUsd: external_exports.number().positive().default(2),
       timeoutMs: external_exports.number().int().positive().default(6e5)
+    }).default({}),
+    antigravity: external_exports.object({
+      model: ModelIdSchema.optional(),
+      models: external_exports.record(EffortSchema, ModelIdSchema).optional(),
+      timeoutMs: external_exports.number().int().positive().default(6e5)
     }).default({})
   }).default({}),
   quotas: external_exports.object({
     codex: QuotaConfigSchema.default({}),
-    claude: QuotaConfigSchema.default({})
+    claude: QuotaConfigSchema.default({}),
+    antigravity: QuotaConfigSchema.default({})
   }).default({}),
   retention: external_exports.object({
     maxAgeDays: external_exports.number().int().min(1).default(7),
@@ -29382,7 +29530,7 @@ async function loadPolicy(repoRoot) {
   const policyPath = join5(repoRoot, POLICY_FILE_NAME);
   let raw;
   try {
-    raw = await readFile4(policyPath, "utf8");
+    raw = await readFile5(policyPath, "utf8");
   } catch (error2) {
     if (isMissingFile(error2)) return DEFAULT_POLICY;
     const detail = error2 instanceof Error ? error2.message : String(error2);
@@ -29434,11 +29582,11 @@ async function writePolicyFile(repoRoot, patch) {
   const examplePath = join6(repoRoot, "policy.example.yaml");
   let current;
   try {
-    current = await readFile5(policyPath, "utf8");
+    current = await readFile6(policyPath, "utf8");
   } catch (error2) {
     if (!isMissingFile2(error2)) throw readError(policyPath, error2);
     try {
-      current = await readFile5(examplePath, "utf8");
+      current = await readFile6(examplePath, "utf8");
     } catch (exampleError) {
       throw readError(examplePath, exampleError);
     }
@@ -29513,9 +29661,15 @@ function summarizePolicy(policy) {
   const models = {};
   if (policy.workers.codex.model !== void 0) models.codex = policy.workers.codex.model;
   if (policy.workers.claude.model !== void 0) models.claude = policy.workers.claude.model;
+  if (policy.workers.antigravity.model !== void 0) {
+    models.antigravity = policy.workers.antigravity.model;
+  }
   const modelTiers = {};
   if (policy.workers.codex.models !== void 0) modelTiers.codex = policy.workers.codex.models;
   if (policy.workers.claude.models !== void 0) modelTiers.claude = policy.workers.claude.models;
+  if (policy.workers.antigravity.models !== void 0) {
+    modelTiers.antigravity = policy.workers.antigravity.models;
+  }
   return {
     chain: policy.chain,
     models,
@@ -29526,7 +29680,8 @@ function buildConfigureDelegationDetectPayload(providers, currentPolicy) {
   return {
     providers: {
       codex: { available: providers.codex.available },
-      claude: { available: providers.claude.available }
+      claude: { available: providers.claude.available },
+      antigravity: { available: providers.antigravity.available }
     },
     currentPolicy: currentPolicy === null ? null : summarizePolicy(currentPolicy)
   };
@@ -29694,12 +29849,12 @@ function registerDelegateTools(server, store, serverInfo, repoRoot) {
 }
 
 // src/routing/quota.ts
-import { mkdir as mkdir3, readFile as readFile6, writeFile as writeFile4 } from "node:fs/promises";
+import { mkdir as mkdir3, readFile as readFile7, writeFile as writeFile4 } from "node:fs/promises";
 import { dirname, join as join8 } from "node:path";
 var WINDOW_5H_MS = 5 * 60 * 60 * 1e3;
 var WINDOW_WEEK_MS = 7 * 24 * 60 * 60 * 1e3;
 var attemptSchema = external_exports.object({
-  engine: external_exports.enum(["codex", "claude"]),
+  engine: external_exports.enum(["codex", "claude", "antigravity"]),
   at: external_exports.number().finite(),
   durationMs: external_exports.number().finite(),
   outcome: external_exports.enum(["ok", "quota", "auth", "other"])
@@ -29708,7 +29863,8 @@ var persistedLedgerSchema = external_exports.object({
   attempts: external_exports.array(attemptSchema),
   exhaustedUntil: external_exports.object({
     codex: external_exports.number().finite().optional(),
-    claude: external_exports.number().finite().optional()
+    claude: external_exports.number().finite().optional(),
+    antigravity: external_exports.number().finite().optional()
   })
 });
 var EMPTY_STATE = { attempts: [], exhaustedUntil: {} };
@@ -29731,7 +29887,7 @@ var QuotaLedger = class _QuotaLedger {
   static async load(repoRoot, now = Date.now) {
     const filePath = join8(repoRoot, ".delegate", "quota-ledger.json");
     try {
-      const raw = await readFile6(filePath, "utf8");
+      const raw = await readFile7(filePath, "utf8");
       const parsed = persistedLedgerSchema.parse(JSON.parse(raw));
       return new _QuotaLedger(filePath, parsed, now);
     } catch (error2) {
