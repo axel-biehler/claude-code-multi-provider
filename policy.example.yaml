@@ -3,8 +3,8 @@
 # Every field is optional: a partial policy.yaml only overrides what it names,
 # the rest keeps the defaults shown here (this file matches them exactly).
 
-# Engine fallback chain, tried in order. Quota exhaustion or an auth failure
-# on one engine is a routing signal: the job moves to the next engine.
+# Engine chain priority order: the first entry receives every delegated job;
+# later entries are automatic fallbacks on quota exhaustion or auth failure.
 # Antigravity is available for inclusion anywhere in this chain.
 chain:
   - codex
@@ -16,7 +16,8 @@ maxConcurrentJobs: 2
 # Per-engine worker tuning.
 workers:
   codex:
-    # Optional; falls back to the Codex CLI's configured default.
+    # Optional; when omitted, uses the locally configured default from
+    # `~/.codex/config.toml`.
     # model: gpt-5.6-sol
     # Optional per-effort model tiers. delegate_task's `effort` hint
     # (light|standard|heavy) selects a tier; an unset tier falls back to
@@ -26,7 +27,9 @@ workers:
     #   heavy: gpt-5.6-sol
     timeoutMs: 600000 # kill the worker after 10 minutes
   claude:
-    model: sonnet # model alias, and the fallback when no tier matches
+    model: sonnet # alias, and the fallback when no tier matches
+    # Aliases track the latest model in each tier (fable, opus, sonnet, haiku),
+    # so they never go stale.
     # Optional per-effort tiers (see the codex note above).
     # models:
     #   light: haiku
@@ -36,13 +39,14 @@ workers:
     timeoutMs: 600000
   antigravity:
     # Optional; falls back to the Antigravity CLI's configured default.
-    # model: gemini-3.5-flash-high
+    # Run `agy models` for the live catalog, newest first.
+    # model: gemini-3.6-flash-high
     # model: claude-sonnet-4-6
     # Optional per-effort tiers (see the codex note above).
     # models:
-    #   light: gemini-3.5-flash-high
+    #   light: gemini-3.6-flash-high
     #   standard: claude-sonnet-4-6
-    #   heavy: gemini-3.5-flash-high
+    #   heavy: gemini-3.6-flash-high
     timeoutMs: 600000
 
 # Per-engine quota budgets. Hitting a budget marks the engine exhausted for
