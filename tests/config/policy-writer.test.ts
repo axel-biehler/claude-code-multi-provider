@@ -143,11 +143,14 @@ describe('writePolicyFile', () => {
     expect((await loadPolicy(repoRoot)).chain).toEqual(['claude'])
   })
 
-  test('reports the example path when neither policy source exists', async () => {
-    // Act
-    const attempt = writePolicyFile(repoRoot, { chain: ['claude'] })
+  test('writes built-in defaults when neither policy source exists (plugin install)', async () => {
+    // Act — a fresh plugin project has no policy.yaml AND no policy.example.yaml to seed from
+    await writePolicyFile(repoRoot, { chain: ['claude'], models: { claude: 'opus' } })
 
     // Assert
-    await expect(attempt).rejects.toThrow(join(repoRoot, 'policy.example.yaml'))
+    const policy = await loadPolicy(repoRoot)
+    expect(policy.chain).toEqual(['claude'])
+    expect(policy.workers.claude.model).toBe('opus')
+    expect(policy.maxConcurrentJobs).toBe(2)
   })
 })
