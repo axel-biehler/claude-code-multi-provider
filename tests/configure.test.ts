@@ -2,12 +2,16 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { parse } from 'yaml'
+import { writePolicyFile } from '../src/config/policy-writer'
+import { PolicySchema } from '../src/routing/policy'
 import {
   buildPolicyPatch,
   ensureDefaultPolicy,
   formatModelMenu,
   parseProviderSelection,
   resolveModelAnswer,
+  resolveReasoningAnswer,
 } from '../scripts/configure'
 
 describe('parseProviderSelection', () => {
@@ -94,6 +98,51 @@ describe('buildPolicyPatch', () => {
       },
     })
   })
+
+  test('omits the reasoning key entirely when no reasoning tier is answered', () => {
+    // Act
+    const patch = buildPolicyPatch(['codex', 'claude'], { codex: 'gpt-test', claude: '' })
+
+    // Assert
+    expect(patch).not.toHaveProperty('reasoning')
+  })
+
+  test('writes only answered per-effort reasoning tiers', () => {
+    // Act
+    const patch = buildPolicyPatch(
+      ['codex', 'claude', 'antigravity'],
+      { codex: 'gpt-test', claude: '', antigravity: 'gemini-default' },
+      {},
+      {
+        codex: { light: ' low ', standard: '', heavy: 'xhigh' },
+        claude: { light: '', standard: ' ', heavy: '' },
+      },
+    )
+
+    // Assert
+    expect(patch).toEqual({
+      chain: ['codex', 'claude', 'antigravity'],
+      models: { codex: 'gpt-test', claude: 'sonnet', antigravity: 'gemini-default' },
+      reasoning: { codex: { light: 'low', heavy: 'xhigh' } },
+    })
+  })
+
+  test('emits both model tiers and reasoning tiers together', () => {
+    // Act
+    const patch = buildPolicyPatch(
+      ['codex', 'claude'],
+      { codex: '', claude: '' },
+      { codex: { light: 'gpt-light', standard: '', heavy: '' } },
+      { codex: { light: 'low', standard: '', heavy: '' }, claude: { standard: 'medium' } },
+    )
+
+    // Assert
+    expect(patch).toEqual({
+      chain: ['codex', 'claude'],
+      models: { codex: { light: 'gpt-light' }, claude: 'sonnet' },
+      reasoning: { codex: { light: 'low' }, claude: { standard: 'medium' } },
+    })
+  })
 })
 
 describe('resolveModelAnswer', () => {
@@ -115,6 +164,30 @@ describe('resolveModelAnswer', () => {
 
   test('passes an empty answer through', () => {
     expect(resolveModelAnswer('', models)).toBe('')
+  })
+})
+
+describe('resolveReasoningAnswer', () => {
+  test('returns a value valid for the given engine', () => {
+    expect(resolveReasoningAnswer(' xhigh ', 'codex')).toBe('xhigh')
+    expect(resolveReasoningAnswer(' max ', 'claude')).toBe('max')
+    expect(resolveReasoningAnswer(' high ', 'antigravity')).toBe('high')
+  })
+
+  test('returns an empty string for a blank answer', () => {
+    expect(resolveReasoningAnswer('   ', 'codex')).toBe('')
+  })
+
+  test('throws for a value invalid for the given engine, listing the allowed set', () => {
+    expect(() => resolveReasoningAnswer('max', 'codex')).toThrow(
+      'Reasoning must be one of: minimal, low, medium, high, xhigh',
+    )
+    expect(() => resolveReasoningAnswer('minimal', 'claude')).toThrow(
+      'Reasoning must be one of: low, medium, high, xhigh, max',
+    )
+    expect(() => resolveReasoningAnswer('xhigh', 'antigravity')).toThrow(
+      'Reasoning must be one of: low, medium, high',
+    )
   })
 })
 
@@ -195,5 +268,36 @@ describe('ensureDefaultPolicy', () => {
     // Assert
     expect(created).toBe(false)
     expect(await readFile(join(repoRoot, 'policy.yaml'), 'utf8')).toBe(current)
+  })
+})
+
+describe('buildPolicyPatch reasoning round-trip', () => {
+  let repoRoot: string
+
+  beforeEach(async () => {
+    repoRoot = await mkdtemp(join(tmpdir(), 'delegate-configure-reasoning-'))
+  })
+
+  afterEach(async () => {
+    await rm(repoRoot, { recursive: true, force: true })
+  })
+
+  test('writing the patch through writePolicyFile keeps the reasoning tiers', async () => {
+    // Arrange
+    const patch = buildPolicyPatch(
+      ['codex', 'claude'],
+      { codex: 'gpt-test', claude: '' },
+      {},
+      { codex: { light: 'low', heavy: 'xhigh' }, claude: { standard: 'medium' } },
+    )
+
+    // Act
+    await writePolicyFile(repoRoot, patch)
+    const written = await readFile(join(repoRoot, 'policy.yaml'), 'utf8')
+    const policy = PolicySchema.parse(parse(written))
+
+    // Assert
+    expect(policy.workers.codex.reasoning).toEqual({ light: 'low', heavy: 'xhigh' })
+    expect(policy.workers.claude.reasoning).toEqual({ standard: 'medium' })
   })
 })
