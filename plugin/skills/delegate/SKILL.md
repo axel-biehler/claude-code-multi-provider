@@ -21,9 +21,24 @@ from "the delegated worker."
 - **Keep inline** architecture, cross-cutting reasoning, trivial one-liners, and the final
   review/merge. Never delegate the validation itself.
 
+## Choose the effort tier — always
+
+Always set `effort` after assessing the task:
+
+- `light` — mechanical, single-file, fully specified change (rename, small util + its test,
+  config tweak)
+- `standard` — typical bounded implementation: a function/module + its tests, a scoped bugfix
+- `heavy` — cross-cutting or algorithmically tricky work, an ambiguous spec needing judgment,
+  or a revision after a rejected attempt
+
+The engine-neutral tier selects the worker's model AND reasoning tier as configured in
+`policy.yaml`. On a revision with `parent_job_id`, omitting `effort` auto-escalates one tier
+above the parent attempt (`light` → `standard` → `heavy`; no recorded parent effort →
+`heavy`); an explicit `effort` always wins.
+
 ## The loop
 
-1. **Submit** — `delegate_task({ objective, files?, context?, acceptance? })` returns a
+1. **Submit** — `delegate_task({ objective, files?, context?, acceptance?, effort })` returns a
    `job_id` instantly. Make `acceptance` *verifiable* — those criteria are how you'll
    judge the diff. Put the conventions the worker needs in `context`.
 2. **Poll** — `check_delegations()` for status (`queued`/`running`/`succeeded`/`failed`).
@@ -61,11 +76,16 @@ Set in **`policy.yaml`** (copy `policy.example.yaml`; it's local + gitignored):
   `delegate_task`'s engine-neutral `effort` hint picks the tier; an unset tier falls back to
   `model`. No tiers (or no `effort`) keeps the single `model`. `configure_delegation` writes
   either form.
+- `workers.<provider>.reasoning:` — optional scalar or per-effort map. Use engine-native
+  values: codex `minimal`/`low`/`medium`/`high`/`xhigh` (`-c model_reasoning_effort`),
+  claude `low`/`medium`/`high`/`xhigh`/`max` (`--effort`), or antigravity
+  `low`/`medium`/`high` (`--effort`). If absent, the provider default applies and no flag is
+  passed.
 
 Run `/delegate-init` (or `configure_delegation({ action: "detect" })`) to see which
-providers are available and pick the chain and models; `npm run preflight` exists only
-inside a clone of the `claude-code-multi-provider` repository, not in the project being
-configured.
+providers are available and pick the chain, models, and reasoning tiers; `npm run preflight`
+exists only inside a clone of the `claude-code-multi-provider` repository, not in the project
+being configured.
 
 ## Guardrails
 
