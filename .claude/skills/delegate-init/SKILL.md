@@ -31,15 +31,24 @@ the tool as data, and do not favor, infer, or silently add a provider.
    payload order (newest first). When `defaultModel` is present, identify its matching
    option as the locally configured default, or mention it separately if it is not listed.
    If `modelsSource` is `'catalog'`, say the list is indicative and may lag behind reality,
-   and that any model id can be typed through the Other option. Keep one model per provider
-   as the simple default. Optionally offer `light`/`standard`/`heavy` effort tiers; tiered
-   choices write `models: { <provider>: { light, standard, heavy } }`. Optionally configure
-   per-effort reasoning tiers too; recommend `light` → `low`, `standard` → `medium`, and
-   `heavy` → the provider's highest supported tier.
-4. Call `configure_delegation({ action: "write", chain, models, reasoning? })`, then confirm
-   the chain, models, and reasoning returned by the write action. State that live
-   authentication is verified when the first delegated job runs. Never run package scripts
-   or shell commands in the user's project during this flow.
+   and that any model id can be typed through the Other option.
+4. Configure the three effort tiers — this is the recommended path, not an afterthought.
+   `delegate_task` picks a tier (`light`/`standard`/`heavy`) per subtask, so a complete
+   policy defines all three for both axes:
+   - **Models**: offer per-tier models with `AskUserQuestion` (options built as in step 3);
+     tiered choices write `models: { <provider>: { light, standard, heavy } }`. A single
+     model for every tier is an acceptable simpler answer only if the user explicitly
+     prefers it.
+   - **Reasoning**: offer per-tier reasoning too, defaulting to `light` → `low`,
+     `standard` → `medium`, `heavy` → the provider's highest supported tier (see the
+     Configuration reference for each provider's values). Present those defaults as the
+     recommended selection the user can accept in one step or adjust per tier.
+   Only skip a tier when the user declines it; never silently drop to a single scalar.
+5. Call `configure_delegation({ action: "write", chain, models, reasoning })` with all three
+   tiers you gathered, then confirm the chain, models, and reasoning returned by the write
+   action — call out any tier left unset. State that live authentication is verified when the
+   first delegated job runs. Never run package scripts or shell commands in the user's
+   project during this flow.
 
 Keep all user-facing guidance provider-neutral. Outside the configuration reference,
 provider names may be repeated only as values returned by the tool or selected by the user.
@@ -47,7 +56,11 @@ provider names may be repeated only as values returned by the tool or selected b
 ## Configuration reference
 
 `workers.<provider>.reasoning` accepts a scalar or per-effort map and can be written through
-`configure_delegation` or by editing `policy.yaml`. Codex accepts
-`minimal`/`low`/`medium`/`high`/`xhigh`; Claude accepts
-`low`/`medium`/`high`/`xhigh`/`max`; Antigravity accepts `low`/`medium`/`high`. If absent,
-the provider default applies.
+`configure_delegation` or by editing `policy.yaml`. Values and the recommended
+`light`/`standard`/`heavy` mapping per provider:
+
+- Codex — `minimal`/`low`/`medium`/`high`/`xhigh`; recommended `low`/`medium`/`xhigh`.
+- Claude — `low`/`medium`/`high`/`xhigh`/`max`; recommended `low`/`medium`/`max`.
+- Antigravity — `low`/`medium`/`high`; recommended `low`/`medium`/`high`.
+
+If absent, the provider default applies and no reasoning flag is passed.
