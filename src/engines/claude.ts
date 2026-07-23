@@ -31,6 +31,7 @@ export interface RunClaudeOptions {
   readonly timeoutMs?: number
   readonly claudeBin?: string
   readonly model?: string
+  readonly reasoning?: string
   readonly maxBudgetUsd?: number
 }
 
@@ -83,6 +84,7 @@ export function runClaude(options: RunClaudeOptions): Promise<RunClaudeResult> {
         '--output-format',
         'json',
         `--model=${options.model ?? WORKER_MODEL}`,
+        ...(options.reasoning === undefined ? [] : [`--effort=${options.reasoning}`]),
         '--permission-mode',
         'acceptEdits',
         '--allowedTools',

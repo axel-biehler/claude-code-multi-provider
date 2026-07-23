@@ -1,5 +1,14 @@
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { WORKER_ALLOWED_TOOLS, classifyClaudeFailure, parseClaudeJson } from '../../src/engines/claude'
+import {
+  WORKER_ALLOWED_TOOLS,
+  classifyClaudeFailure,
+  parseClaudeJson,
+  runClaude,
+} from '../../src/engines/claude'
+import { buildJobPaths } from '../../src/jobs/paths'
 
 describe('WORKER_ALLOWED_TOOLS', () => {
   test('every rule uses the colon-prefix Bash grammar (finding 6 regression)', () => {
@@ -11,6 +20,50 @@ describe('WORKER_ALLOWED_TOOLS', () => {
     for (const rule of rules) {
       expect(rule).toMatch(/^Bash\([^)]+:\*\)$/)
     }
+  })
+})
+
+describe('runClaude', () => {
+  async function captureSpawnArgs(reasoning?: string): Promise<string> {
+    const worktreePath = await mkdtemp(join(tmpdir(), 'delegate-claude-args-'))
+    const claudeBin = join(worktreePath, 'fake-claude')
+    const paths = buildJobPaths(worktreePath, 'job')
+    await mkdir(paths.jobDir, { recursive: true })
+    await writeFile(
+      claudeBin,
+      '#!/bin/sh\nprintf \'{"result":"%s"}\' "$*"\n',
+      'utf8',
+    )
+    await chmod(claudeBin, 0o755)
+
+    try {
+      const outcome = await runClaude({
+        claudeBin,
+        worktreePath,
+        prompt: 'implement',
+        paths,
+        reasoning,
+      })
+      return outcome.lastMessage ?? ''
+    } finally {
+      await rm(worktreePath, { recursive: true, force: true })
+    }
+  }
+
+  test('passes reasoning to the spawned CLI in equals form', async () => {
+    // Act
+    const args = await captureSpawnArgs('xhigh')
+
+    // Assert
+    expect(args).toContain('--effort=xhigh')
+  })
+
+  test('omits the effort flag when reasoning is undefined', async () => {
+    // Act
+    const args = await captureSpawnArgs()
+
+    // Assert
+    expect(args).not.toContain('--effort=')
   })
 })
 

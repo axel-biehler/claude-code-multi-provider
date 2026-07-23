@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { PolicySchema } from '../../src/routing/policy'
 import { QuotaLedger } from '../../src/routing/quota'
-import { resolveWorkerModel, selectEngine } from '../../src/routing/router'
+import { resolveWorkerModel, resolveWorkerReasoning, selectEngine } from '../../src/routing/router'
 
 describe('resolveWorkerModel', () => {
   test('returns the requested tier model when configured', () => {
@@ -75,6 +75,64 @@ describe('resolveWorkerModel', () => {
     // Assert
     expect(tierModel).toBe('gemini-heavy')
     expect(fallbackModel).toBeUndefined()
+  })
+})
+
+describe('resolveWorkerReasoning', () => {
+  test('returns a scalar setting for any effort tier', () => {
+    // Arrange
+    const policy = PolicySchema.parse({
+      workers: { codex: { reasoning: 'high' } },
+    })
+
+    // Act
+    const light = resolveWorkerReasoning(policy, 'codex', 'light')
+    const heavy = resolveWorkerReasoning(policy, 'codex', 'heavy')
+
+    // Assert
+    expect(light).toBe('high')
+    expect(heavy).toBe('high')
+  })
+
+  test('returns the requested map tier and defaults undefined effort to standard', () => {
+    // Arrange
+    const policy = PolicySchema.parse({
+      workers: {
+        claude: { reasoning: { standard: 'medium', heavy: 'xhigh' } },
+      },
+    })
+
+    // Act
+    const standard = resolveWorkerReasoning(policy, 'claude')
+    const heavy = resolveWorkerReasoning(policy, 'claude', 'heavy')
+
+    // Assert
+    expect(standard).toBe('medium')
+    expect(heavy).toBe('xhigh')
+  })
+
+  test('returns undefined when the requested tier is missing from a map', () => {
+    // Arrange
+    const policy = PolicySchema.parse({
+      workers: { antigravity: { reasoning: { light: 'low' } } },
+    })
+
+    // Act
+    const reasoning = resolveWorkerReasoning(policy, 'antigravity', 'heavy')
+
+    // Assert
+    expect(reasoning).toBeUndefined()
+  })
+
+  test('returns undefined when reasoning is absent', () => {
+    // Arrange
+    const policy = PolicySchema.parse({})
+
+    // Act
+    const reasoning = resolveWorkerReasoning(policy, 'codex', 'standard')
+
+    // Assert
+    expect(reasoning).toBeUndefined()
   })
 })
 

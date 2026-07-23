@@ -8,6 +8,9 @@ const POLICY_FILE_NAME = 'policy.yaml'
 
 export const EngineNameSchema = z.enum(['codex', 'claude', 'antigravity'])
 export const EffortSchema = z.enum(['light', 'standard', 'heavy'])
+export const CodexReasoningSchema = z.enum(['minimal', 'low', 'medium', 'high', 'xhigh'])
+export const ClaudeReasoningSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max'])
+export const AntigravityReasoningSchema = z.enum(['low', 'medium', 'high'])
 
 // Model ids are handed to the worker CLI as `--model=<id>`; reject a leading '-' so a
 // crafted policy value can't be reinterpreted as a CLI flag (the adapters also use the
@@ -34,6 +37,14 @@ export const PolicySchema = z.object({
         .object({
           model: ModelIdSchema.optional(),
           models: z.record(EffortSchema, ModelIdSchema).optional(),
+          // A scalar applies to every tier; a map has no cross-tier fallback. Missing
+          // reasoning means no CLI flag, preserving the engine's current default.
+          reasoning: z
+            .union([
+              CodexReasoningSchema,
+              z.record(EffortSchema, CodexReasoningSchema),
+            ])
+            .optional(),
           timeoutMs: z.number().int().positive().default(600_000),
         })
         .default({}),
@@ -41,6 +52,12 @@ export const PolicySchema = z.object({
         .object({
           model: ModelIdSchema.default('sonnet'),
           models: z.record(EffortSchema, ModelIdSchema).optional(),
+          reasoning: z
+            .union([
+              ClaudeReasoningSchema,
+              z.record(EffortSchema, ClaudeReasoningSchema),
+            ])
+            .optional(),
           maxBudgetUsd: z.number().positive().default(2),
           timeoutMs: z.number().int().positive().default(600_000),
         })
@@ -49,6 +66,12 @@ export const PolicySchema = z.object({
         .object({
           model: ModelIdSchema.optional(),
           models: z.record(EffortSchema, ModelIdSchema).optional(),
+          reasoning: z
+            .union([
+              AntigravityReasoningSchema,
+              z.record(EffortSchema, AntigravityReasoningSchema),
+            ])
+            .optional(),
           timeoutMs: z.number().int().positive().default(600_000),
         })
         .default({}),

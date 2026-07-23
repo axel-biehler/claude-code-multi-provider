@@ -123,4 +123,16 @@ describe('buildAntigravityArgs', () => {
 
     expect(args.some((arg) => arg.startsWith('--model'))).toBe(false)
   })
+
+  test('includes reasoning in equals form when configured', () => {
+    const args = buildAntigravityArgs({ ...baseOptions, reasoning: 'high' })
+
+    expect(args).toContain('--effort=high')
+  })
+
+  test('omits the effort flag when reasoning is undefined', () => {
+    const args = buildAntigravityArgs(baseOptions)
+
+    expect(args.some((arg) => arg.startsWith('--effort='))).toBe(false)
+  })
 })

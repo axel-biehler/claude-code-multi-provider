@@ -89,6 +89,30 @@ describe('executeJob', () => {
     expect(model).toBe('tier-heavy')
   })
 
+  test("passes the task's resolved effort tier reasoning to the selected worker", async () => {
+    // Arrange
+    const policy = PolicySchema.parse({
+      chain: ['claude'],
+      workers: { claude: { reasoning: { heavy: 'xhigh' } } },
+    })
+    const ledger = await QuotaLedger.load(repoRoot)
+    let reasoning: string | undefined
+    const runner: WorkerRunner = async (req) => {
+      reasoning = req.reasoning
+      return { exitCode: 0, lastMessage: 'done', durationMs: 1 }
+    }
+
+    // Act
+    await executeJob(
+      { repoRoot, policy, ledger, runWorker: runner },
+      'job-heavy-reasoning',
+      { objective: 'add a generated file', effort: 'heavy' },
+    )
+
+    // Assert
+    expect(reasoning).toBe('xhigh')
+  })
+
   test('resolves the fallback worker model after a quota reroute', async () => {
     // Arrange
     vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -482,6 +506,7 @@ describe('buildDefaultWorkerRunner', () => {
       const outcome = await buildDefaultWorkerRunner()({
         engine: 'antigravity',
         model: 'gemini-test',
+        reasoning: 'high',
         repoRoot,
         worktreePath: repoRoot,
         prompt: 'Reply with exactly: ok',
@@ -496,6 +521,7 @@ describe('buildDefaultWorkerRunner', () => {
       expect(outcome.lastMessage).toContain(`${agyBin}|-p Reply with exactly: ok`)
       expect(outcome.lastMessage).toContain('--print-timeout 123s')
       expect(outcome.lastMessage).toContain('--model=gemini-test')
+      expect(outcome.lastMessage).toContain('--effort=high')
     } finally {
       if (originalHome === undefined) delete process.env.HOME
       else process.env.HOME = originalHome

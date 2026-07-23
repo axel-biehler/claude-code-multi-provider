@@ -109,6 +109,7 @@ export interface RunCodexOptions {
   readonly prompt: string
   readonly paths: JobPaths
   readonly model?: string
+  readonly reasoning?: string
   readonly timeoutMs?: number
   readonly configOverrides?: readonly string[]
 }
@@ -134,6 +135,9 @@ export function buildCodexArgs(options: RunCodexOptions): string[] {
     '--output-last-message',
     options.paths.lastMessageFile,
     ...(options.model === undefined ? [] : [`--model=${options.model}`]),
+    ...(options.reasoning === undefined
+      ? []
+      : ['-c', `model_reasoning_effort="${options.reasoning}"`]),
     ...(options.configOverrides ?? CODEX_CONFIG_OVERRIDES),
     options.prompt,
   ]

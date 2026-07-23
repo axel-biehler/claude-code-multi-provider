@@ -18,6 +18,7 @@ export interface RunAntigravityOptions {
   readonly prompt: string
   readonly paths: JobPaths
   readonly model?: string
+  readonly reasoning?: string
   readonly timeoutMs?: number
 }
 
@@ -74,6 +75,7 @@ export function buildAntigravityArgs(options: RunAntigravityOptions): string[] {
     '--print-timeout',
     `${Math.ceil((options.timeoutMs ?? DEFAULT_TIMEOUT_MS) / 1_000)}s`,
     ...(options.model === undefined ? [] : [`--model=${options.model}`]),
+    ...(options.reasoning === undefined ? [] : [`--effort=${options.reasoning}`]),
   ]
 }
 

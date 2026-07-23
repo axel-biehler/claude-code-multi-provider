@@ -13,7 +13,7 @@ import { buildPrompt } from '../engines/shared/prompt'
 import { collectDiff, createWorktree, removeWorktree } from '../git/worktree'
 import type { Policy } from '../routing/policy'
 import type { QuotaLedger } from '../routing/quota'
-import { resolveWorkerModel, selectEngine } from '../routing/router'
+import { resolveWorkerModel, resolveWorkerReasoning, selectEngine } from '../routing/router'
 import type {
   DelegateResult,
   DelegateTask,
@@ -44,6 +44,7 @@ export interface RevisionSpec {
 export interface WorkerRunRequest {
   readonly engine: EngineName
   readonly model?: string
+  readonly reasoning?: string
   readonly repoRoot: string
   readonly worktreePath: string
   readonly prompt: string
@@ -178,6 +179,7 @@ export function buildDefaultWorkerRunner(): WorkerRunner {
         paths: req.paths,
         timeoutMs: worker.timeoutMs,
         model: req.model,
+        reasoning: req.reasoning,
         maxBudgetUsd: worker.maxBudgetUsd,
       })
     }
@@ -190,6 +192,7 @@ export function buildDefaultWorkerRunner(): WorkerRunner {
         paths: req.paths,
         timeoutMs: worker.timeoutMs,
         model: req.model,
+        reasoning: req.reasoning,
       })
     }
     const codexCli = await resolveCodexCli(req.repoRoot)
@@ -203,6 +206,7 @@ export function buildDefaultWorkerRunner(): WorkerRunner {
       paths: req.paths,
       timeoutMs: worker.timeoutMs,
       model: req.model,
+      reasoning: req.reasoning,
     })
   })
 }
@@ -239,6 +243,7 @@ async function runEngineChain(
       const engine = selectEngine(deps.policy, deps.ledger, revision?.excludeEngine)
       if (engine === null) break
       const model = resolveWorkerModel(deps.policy, engine, effort)
+      const reasoning = resolveWorkerReasoning(deps.policy, engine, effort)
 
       worktree = await createWorktreeSerialized(deps.repoRoot, jobId)
       await provisionNodeModules(deps.repoRoot, worktree.path)
@@ -260,6 +265,7 @@ async function runEngineChain(
       const outcome = await runWorker({
         engine,
         model,
+        reasoning,
         repoRoot: deps.repoRoot,
         worktreePath: worktree.path,
         prompt,

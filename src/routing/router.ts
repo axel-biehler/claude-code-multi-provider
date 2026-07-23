@@ -12,6 +12,16 @@ export function resolveWorkerModel(
   return worker.models?.[tier] ?? worker.model
 }
 
+export function resolveWorkerReasoning(
+  policy: Policy,
+  engine: EngineName,
+  effort?: Effort,
+): string | undefined {
+  const reasoning = policy.workers[engine].reasoning
+  if (typeof reasoning === 'string') return reasoning
+  return reasoning?.[effort ?? 'standard']
+}
+
 /**
  * First non-excluded engine in policy.chain with quota headroom, or null when every
  * eligible engine is exhausted/capped (caller surfaces the appropriate capacity error).
