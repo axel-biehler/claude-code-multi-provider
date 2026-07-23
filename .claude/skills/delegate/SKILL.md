@@ -51,9 +51,10 @@ context and returns one consolidated report. You still perform the merges.
 
 Set in **`policy.yaml`** (copy `policy.example.yaml`; it's local + gitignored):
 
-- `chain:` — the ordered provider fallback: `[codex]`, `[claude]`, or `[codex, claude]`.
-  A provider that hits a quota/auth wall is skipped for the next in the chain. Set this to
-  whatever you've authenticated.
+- `chain:` — the ordered provider fallback: `[codex]`, `[claude]`, `[antigravity]`, or any
+  ordered combination. The first entry receives every job; later entries are automatic
+  fallbacks used only when an earlier provider hits a quota/auth wall. Set this to whatever
+  you've authenticated.
 - `workers.<provider>.model:` — the model per provider (a codex model id, or a Claude
   alias like `sonnet`), plus per-provider budgets/timeouts.
 - `workers.<provider>.models:` — optional per-effort tiers (`light`/`standard`/`heavy`).
@@ -61,8 +62,10 @@ Set in **`policy.yaml`** (copy `policy.example.yaml`; it's local + gitignored):
   `model`. No tiers (or no `effort`) keeps the single `model`. `configure_delegation` writes
   either form.
 
-Run `npm run preflight` to see which providers actually authenticate on this machine
-before you pick the chain.
+Run `/delegate-init` (or `configure_delegation({ action: "detect" })`) to see which
+providers are available and pick the chain and models; `npm run preflight` exists only
+inside a clone of the `claude-code-multi-provider` repository, not in the project being
+configured.
 
 ## Guardrails
 
