@@ -30,11 +30,16 @@ interface CheckDelegationJob {
 }
 
 const ModelsValueSchema = z.union([ModelIdSchema, z.record(EffortSchema, ModelIdSchema)])
+const ReasoningValueSchema = z.union([
+  z.string().min(1),
+  z.record(EffortSchema, z.string().min(1)),
+])
 
 const ConfigureDelegationInputShape = {
   action: z.enum(['detect', 'write']),
   chain: z.array(EngineNameSchema).optional(),
   models: z.record(EngineNameSchema, ModelsValueSchema).optional(),
+  reasoning: z.record(EngineNameSchema, ReasoningValueSchema).optional(),
 }
 
 const ConfigureDelegationInputSchema = z.object(ConfigureDelegationInputShape)
@@ -43,12 +48,16 @@ const ConfigureDelegationWriteInputSchema = z.object({
   action: z.literal('write'),
   chain: z.array(EngineNameSchema).min(1),
   models: z.record(EngineNameSchema, ModelsValueSchema).default({}),
+  reasoning: z.record(EngineNameSchema, ReasoningValueSchema).default({}),
 })
 
 type PolicySummary = {
   readonly chain: readonly EngineName[]
   readonly models: Partial<Record<EngineName, string>>
   readonly modelTiers?: Partial<Record<EngineName, Partial<Record<Effort, string>>>>
+  readonly reasoning?: Partial<
+    Record<EngineName, string | Partial<Record<Effort, string>>>
+  >
 }
 
 type ConfigureDelegationWriteInput = z.infer<typeof ConfigureDelegationWriteInputSchema>
@@ -81,10 +90,23 @@ function summarizePolicy(policy: Policy): PolicySummary {
   if (policy.workers.antigravity.models !== undefined) {
     modelTiers.antigravity = policy.workers.antigravity.models
   }
+  const reasoning: Partial<
+    Record<EngineName, string | Partial<Record<Effort, string>>>
+  > = {}
+  if (policy.workers.codex.reasoning !== undefined) {
+    reasoning.codex = policy.workers.codex.reasoning
+  }
+  if (policy.workers.claude.reasoning !== undefined) {
+    reasoning.claude = policy.workers.claude.reasoning
+  }
+  if (policy.workers.antigravity.reasoning !== undefined) {
+    reasoning.antigravity = policy.workers.antigravity.reasoning
+  }
   return {
     chain: policy.chain,
     models,
     ...(Object.keys(modelTiers).length > 0 ? { modelTiers } : {}),
+    ...(Object.keys(reasoning).length > 0 ? { reasoning } : {}),
   }
 }
 
@@ -152,13 +174,13 @@ export async function writeDelegationPolicy(
   repoRoot: string,
   input: unknown,
 ): Promise<PolicySummary> {
-  const { chain, models } = parseConfigureDelegationWriteInput(input)
-  await writePolicyFile(repoRoot, { chain, models })
+  const { chain, models, reasoning } = parseConfigureDelegationWriteInput(input)
+  await writePolicyFile(repoRoot, { chain, models, reasoning })
   return summarizePolicy(await loadPolicy(repoRoot))
 }
 
 const DELEGATE_TASK_DESCRIPTION =
-  'Delegate a bounded, well-specified implementation subtask to an isolated worker. Use for well-scoped implementation/tests/refactor tasks; keep architecture and validation yourself. An optional effort hint (light | standard | heavy) selects the worker model tier when configured. Returns immediately with a job_id while the worker runs in an isolated git worktree in the background. Poll check_delegations for progress; fetch the outcome with get_delegation_result. To revise a rejected attempt, set parent_job_id to its session-scoped job id and optionally set feedback to the reviewer feedback; set escalate=true to route away from the engine that produced the parent attempt.'
+  'Delegate a bounded, well-specified implementation subtask to an isolated worker. Use for well-scoped implementation/tests/refactor tasks; keep architecture and validation yourself. Always set the effort hint (light | standard | heavy) from your difficulty assessment — it selects the worker model and reasoning tier when configured; a revision without an explicit effort escalates one tier above the parent attempt. Returns immediately with a job_id while the worker runs in an isolated git worktree in the background. Poll check_delegations for progress; fetch the outcome with get_delegation_result. To revise a rejected attempt, set parent_job_id to its session-scoped job id and optionally set feedback to the reviewer feedback; set escalate=true to route away from the engine that produced the parent attempt.'
 
 const CHECK_DELEGATIONS_DESCRIPTION =
   'List all delegated jobs in this session with their status (queued | running | succeeded | failed). Read-only, instant.'
@@ -225,6 +247,7 @@ export function resolveRevision(
       parentDiffPath: parent.result.diffPath,
       feedback: input.feedback,
       excludeEngine: input.escalate === true ? parent.engine : undefined,
+      ...(parent.effort !== undefined ? { parentEffort: parent.effort } : {}),
     },
   }
 }

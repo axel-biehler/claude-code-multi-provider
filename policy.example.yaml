@@ -25,6 +25,14 @@ workers:
     # models:
     #   light: gpt-5.6-sol
     #   heavy: gpt-5.6-sol
+    # Optional reasoning values: minimal|low|medium|high|xhigh. A scalar
+    # applies to all tiers, a map is per-tier, and absent uses the provider
+    # CLI's own default.
+    # reasoning:
+    #   light: low
+    #   standard: medium
+    #   heavy: high
+    # Scalar alternative: reasoning: high
     timeoutMs: 600000 # kill the worker after 10 minutes
   claude:
     model: sonnet # alias, and the fallback when no tier matches
@@ -35,6 +43,14 @@ workers:
     #   light: haiku
     #   standard: sonnet
     #   heavy: opus
+    # Optional reasoning values: low|medium|high|xhigh|max. A scalar applies
+    # to all tiers, a map is per-tier, and absent uses the provider CLI's own
+    # default.
+    # reasoning:
+    #   light: low
+    #   standard: high
+    #   heavy: max
+    # Scalar alternative: reasoning: high
     maxBudgetUsd: 2 # per-job spend cap
     timeoutMs: 600000
   antigravity:
@@ -47,6 +63,13 @@ workers:
     #   light: gemini-3.6-flash-high
     #   standard: claude-sonnet-4-6
     #   heavy: gemini-3.6-flash-high
+    # Optional reasoning values: low|medium|high. A scalar applies to all
+    # tiers, a map is per-tier, and absent uses the provider CLI's own default.
+    # reasoning:
+    #   light: low
+    #   standard: medium
+    #   heavy: high
+    # Scalar alternative: reasoning: high
     timeoutMs: 600000
 
 # Per-engine quota budgets. Hitting a budget marks the engine exhausted for

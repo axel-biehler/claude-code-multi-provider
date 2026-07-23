@@ -17,7 +17,7 @@ export const DelegateTaskShape = {
     .enum(['light', 'standard', 'heavy'])
     .optional()
     .describe(
-      'Engine-neutral difficulty hint that selects a worker model tier when configured; omit for the standard tier.',
+      'Difficulty tier of this subtask — always assess and set it: light = mechanical, single-file, fully specified; standard = typical bounded implementation with tests; heavy = cross-cutting, algorithmically tricky, or ambiguous. Selects the worker model and reasoning tier when configured. On a revision without an explicit effort, the server escalates one tier above the parent attempt.',
     ),
   acceptance: z
     .array(z.string())
@@ -95,6 +95,7 @@ export interface JobRecord {
   readonly status: JobStatus
   readonly objective: string
   readonly createdAt: number
+  readonly effort?: Effort
   readonly startedAt?: number
   readonly finishedAt?: number
   readonly engine?: EngineName

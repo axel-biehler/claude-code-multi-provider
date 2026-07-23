@@ -39,6 +39,7 @@ export interface RevisionSpec {
   readonly parentDiffPath: string
   readonly feedback?: string
   readonly excludeEngine?: EngineName
+  readonly parentEffort?: Effort
 }
 
 export interface WorkerRunRequest {
@@ -59,6 +60,11 @@ export interface ExecutorDeps {
   readonly policy: Policy
   readonly ledger: QuotaLedger
   readonly runWorker?: WorkerRunner
+}
+
+export function escalateEffortTier(parent?: Effort): Effort {
+  if (parent === 'light') return 'standard'
+  return 'heavy'
 }
 
 // Copy-on-write clone command per platform; null = no clone tool, go straight to the
@@ -330,6 +336,10 @@ export async function executeJob(
   const prompt = buildPrompt(task, revision)
   await writeFile(paths.promptFile, prompt, 'utf8')
 
+  // A rejected attempt signals that its selected tier was too low.
+  const effort =
+    task.effort ??
+    (revision === undefined ? undefined : escalateEffortTier(revision.parentEffort))
   const { engine, worktree, outcome } = await runEngineChain(
     deps,
     runWorker,
@@ -337,7 +347,7 @@ export async function executeJob(
     prompt,
     paths,
     revision,
-    task.effort,
+    effort,
   )
 
   // The engine consumed real quota the moment the worker ran, whether or not

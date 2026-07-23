@@ -4,7 +4,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { buildDefaultWorkerRunner, cloneCommandFor, executeJob, neutralizeRunnerErrors } from '../../src/jobs/executor'
+import {
+  buildDefaultWorkerRunner,
+  cloneCommandFor,
+  escalateEffortTier,
+  executeJob,
+  neutralizeRunnerErrors,
+} from '../../src/jobs/executor'
 import type { WorkerRunner } from '../../src/jobs/executor'
 import { buildJobPaths } from '../../src/jobs/paths'
 import { PolicySchema } from '../../src/routing/policy'
@@ -111,6 +117,70 @@ describe('executeJob', () => {
 
     // Assert
     expect(reasoning).toBe('xhigh')
+  })
+
+  test('escalates an implicit revision effort one tier above its parent', async () => {
+    // Arrange
+    const policy = PolicySchema.parse({
+      chain: ['claude'],
+      workers: {
+        claude: {
+          models: { heavy: 'tier-heavy' },
+          reasoning: { heavy: 'xhigh' },
+        },
+      },
+    })
+    const ledger = await QuotaLedger.load(repoRoot)
+    const parentDiffPath = join(repoRoot, 'blank-parent.patch')
+    await writeFile(parentDiffPath, '', 'utf8')
+    let selection: { model?: string; reasoning?: string } = {}
+    const runner: WorkerRunner = async (req) => {
+      selection = { model: req.model, reasoning: req.reasoning }
+      return { exitCode: 0, lastMessage: 'done', durationMs: 1 }
+    }
+
+    // Act
+    await executeJob(
+      { repoRoot, policy, ledger, runWorker: runner },
+      'job-revision-escalated-effort',
+      TASK,
+      { parentDiffPath, parentEffort: 'standard' },
+    )
+
+    // Assert
+    expect(selection).toEqual({ model: 'tier-heavy', reasoning: 'xhigh' })
+  })
+
+  test('uses an explicit revision effort instead of escalating the parent effort', async () => {
+    // Arrange
+    const policy = PolicySchema.parse({
+      chain: ['claude'],
+      workers: {
+        claude: {
+          models: { light: 'tier-light', heavy: 'tier-heavy' },
+          reasoning: { light: 'low', heavy: 'xhigh' },
+        },
+      },
+    })
+    const ledger = await QuotaLedger.load(repoRoot)
+    const parentDiffPath = join(repoRoot, 'blank-parent.patch')
+    await writeFile(parentDiffPath, '', 'utf8')
+    let selection: { model?: string; reasoning?: string } = {}
+    const runner: WorkerRunner = async (req) => {
+      selection = { model: req.model, reasoning: req.reasoning }
+      return { exitCode: 0, lastMessage: 'done', durationMs: 1 }
+    }
+
+    // Act
+    await executeJob(
+      { repoRoot, policy, ledger, runWorker: runner },
+      'job-revision-explicit-effort',
+      { ...TASK, effort: 'light' },
+      { parentDiffPath, parentEffort: 'standard' },
+    )
+
+    // Assert
+    expect(selection).toEqual({ model: 'tier-light', reasoning: 'low' })
   })
 
   test('resolves the fallback worker model after a quota reroute', async () => {
@@ -478,6 +548,21 @@ describe('executeJob', () => {
       'Escalation impossible: no alternative engine available. Re-delegate without escalate to allow the same engine.',
     )
     await expect(listWorktreeDirs()).resolves.toHaveLength(0)
+  })
+})
+
+describe('escalateEffortTier', () => {
+  test.each([
+    ['light', 'standard'],
+    ['standard', 'heavy'],
+    ['heavy', 'heavy'],
+    [undefined, 'heavy'],
+  ] as const)('maps %s to %s', (parent, expected) => {
+    // Act
+    const effort = escalateEffortTier(parent)
+
+    // Assert
+    expect(effort).toBe(expected)
   })
 })
 

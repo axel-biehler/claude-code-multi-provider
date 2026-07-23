@@ -7,9 +7,33 @@ import {
   buildCheckDelegationsPayload,
   buildConfigureDelegationDetectPayload,
   parseConfigureDelegationWriteInput,
+  resolveRevision,
   writeDelegationPolicy,
 } from '../../src/mcp/tools'
 import { PolicySchema } from '../../src/routing/policy'
+import type { JobRecord } from '../../src/types'
+
+function buildParentRecord(effort?: JobRecord['effort']): JobRecord {
+  return {
+    jobId: 'parent-1',
+    status: 'failed',
+    objective: 'parent task',
+    createdAt: 1,
+    engine: 'codex',
+    ...(effort !== undefined ? { effort } : {}),
+    result: {
+      jobId: 'parent-1',
+      branch: 'delegate/parent-1',
+      worktreePath: '/tmp/parent-1',
+      summary: 'needs revision',
+      diffPath: '/tmp/parent-1.patch',
+      diff: '',
+      exitCode: 1,
+      durationMs: 1,
+      engine: 'codex',
+    },
+  }
+}
 
 describe('buildCheckDelegationsPayload', () => {
   test('returns server boot metadata and jobs in the check_delegations payload shape', () => {
@@ -177,6 +201,34 @@ describe('configure_delegation logic', () => {
     })
   })
 
+  test('includes configured scalar and per-tier reasoning in the detect payload', () => {
+    // Arrange
+    const providers = {
+      codex: { available: true, detail: 'authenticated' },
+      claude: { available: true, detail: 'authenticated' },
+      antigravity: { available: true, detail: 'authenticated' },
+    }
+    const policy = PolicySchema.parse({
+      workers: {
+        codex: { reasoning: 'high' },
+        claude: { reasoning: { light: 'low', heavy: 'max' } },
+      },
+    })
+
+    // Act
+    const payload = buildConfigureDelegationDetectPayload(
+      providers,
+      discoveredModels,
+      policy,
+    )
+
+    // Assert
+    expect(payload.currentPolicy?.reasoning).toEqual({
+      codex: 'high',
+      claude: { light: 'low', heavy: 'max' },
+    })
+  })
+
   test.each([
     ['a scalar model', { codex: 'gpt-x' }],
     ['a tier model map', { claude: { light: 'small', heavy: 'big' } }],
@@ -185,6 +237,19 @@ describe('configure_delegation logic', () => {
     expect(
       parseConfigureDelegationWriteInput({ action: 'write', chain: ['codex'], models }),
     ).toMatchObject({ models })
+  })
+
+  test.each([
+    ['scalar reasoning', { codex: 'high' }],
+    ['per-tier reasoning', { claude: { light: 'low', heavy: 'max' } }],
+  ])('accepts %s in write input', (_label, reasoning) => {
+    expect(
+      parseConfigureDelegationWriteInput({
+        action: 'write',
+        chain: ['codex'],
+        reasoning,
+      }),
+    ).toMatchObject({ reasoning })
   })
 
   test('rejects an empty write chain', () => {
@@ -261,5 +326,85 @@ describe('configure_delegation logic', () => {
       parse(await readFile(join(repoRoot, 'policy.yaml'), 'utf8')),
     )
     expect(written.workers.claude.models).toEqual({ heavy: 'big', light: 'small' })
+  })
+
+  test('writes and returns scalar and per-tier worker reasoning', async () => {
+    // Arrange
+    const repoRoot = await mkdtemp(join(tmpdir(), 'delegate-mcp-tools-'))
+    temporaryRoots.push(repoRoot)
+    await writeFile(join(repoRoot, 'policy.yaml'), 'chain: [codex]\n', 'utf8')
+
+    // Act
+    const result = await writeDelegationPolicy(repoRoot, {
+      action: 'write',
+      chain: ['codex', 'claude'],
+      reasoning: {
+        codex: 'high',
+        claude: { light: 'low', heavy: 'max' },
+      },
+    })
+
+    // Assert
+    expect(result.reasoning).toEqual({
+      codex: 'high',
+      claude: { light: 'low', heavy: 'max' },
+    })
+    const written = PolicySchema.parse(
+      parse(await readFile(join(repoRoot, 'policy.yaml'), 'utf8')),
+    )
+    expect(written.workers.codex.reasoning).toBe('high')
+    expect(written.workers.claude.reasoning).toEqual({ light: 'low', heavy: 'max' })
+  })
+
+  test('rejects reasoning values invalid for the selected engine during policy validation', async () => {
+    // Arrange
+    const repoRoot = await mkdtemp(join(tmpdir(), 'delegate-mcp-tools-'))
+    temporaryRoots.push(repoRoot)
+
+    // Act + Assert
+    await expect(
+      writeDelegationPolicy(repoRoot, {
+        action: 'write',
+        chain: ['codex'],
+        reasoning: { codex: 'max' },
+      }),
+    ).rejects.toThrow('Invalid')
+  })
+})
+
+describe('resolveRevision', () => {
+  test('carries the parent effort into the revision spec', () => {
+    // Arrange
+    const parent = buildParentRecord('standard')
+
+    // Act
+    const resolution = resolveRevision(parent, {
+      objective: 'revise task',
+      parent_job_id: 'parent-1',
+    })
+
+    // Assert
+    expect(resolution).toEqual({
+      revision: {
+        parentDiffPath: '/tmp/parent-1.patch',
+        feedback: undefined,
+        excludeEngine: undefined,
+        parentEffort: 'standard',
+      },
+    })
+  })
+
+  test('omits parentEffort when the parent job has no explicit effort', () => {
+    // Arrange
+    const parent = buildParentRecord()
+
+    // Act
+    const resolution = resolveRevision(parent, {
+      objective: 'revise task',
+      parent_job_id: 'parent-1',
+    })
+
+    // Assert
+    expect(resolution.revision).not.toHaveProperty('parentEffort')
   })
 })

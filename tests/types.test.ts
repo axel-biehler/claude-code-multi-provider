@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { DelegateTaskSchema } from '../src/types'
+import { DelegateTaskSchema, DelegateTaskShape } from '../src/types'
 
 describe('DelegateTaskSchema', () => {
   test.each(['light', 'standard', 'heavy'] as const)('accepts %s effort', (effort) => {
@@ -33,6 +33,17 @@ describe('DelegateTaskSchema', () => {
 
     // Assert
     expect(result).toEqual({ success: true, data: input })
+  })
+
+  test('directs the orchestrator to always assess effort and explains revision escalation', () => {
+    // Act
+    const description = DelegateTaskShape.effort.description
+
+    // Assert
+    expect(description).toContain('always assess and set it')
+    expect(description).toContain('Selects the worker model and reasoning tier')
+    expect(description).toContain('revision without an explicit effort')
+    expect(description).not.toMatch(/codex|claude|antigravity/i)
   })
 
   test('rejects feedback without a parent job id', () => {
