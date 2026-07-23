@@ -28656,7 +28656,8 @@ function buildAntigravityArgs(options) {
     "--dangerously-skip-permissions",
     "--print-timeout",
     `${Math.ceil((options.timeoutMs ?? DEFAULT_TIMEOUT_MS) / 1e3)}s`,
-    ...options.model === void 0 ? [] : [`--model=${options.model}`]
+    ...options.model === void 0 ? [] : [`--model=${options.model}`],
+    ...options.reasoning === void 0 ? [] : [`--effort=${options.reasoning}`]
   ];
 }
 function runAntigravity(options) {
@@ -28748,6 +28749,7 @@ function runClaude(options) {
         "--output-format",
         "json",
         `--model=${options.model ?? WORKER_MODEL}`,
+        ...options.reasoning === void 0 ? [] : [`--effort=${options.reasoning}`],
         "--permission-mode",
         "acceptEdits",
         "--allowedTools",
@@ -28894,6 +28896,7 @@ function buildCodexArgs(options) {
     "--output-last-message",
     options.paths.lastMessageFile,
     ...options.model === void 0 ? [] : [`--model=${options.model}`],
+    ...options.reasoning === void 0 ? [] : ["-c", `model_reasoning_effort="${options.reasoning}"`],
     ...options.configOverrides ?? CODEX_CONFIG_OVERRIDES,
     options.prompt
   ];
@@ -29041,6 +29044,11 @@ function resolveWorkerModel(policy, engine, effort) {
   const tier = effort ?? "standard";
   return worker.models?.[tier] ?? worker.model;
 }
+function resolveWorkerReasoning(policy, engine, effort) {
+  const reasoning = policy.workers[engine].reasoning;
+  if (typeof reasoning === "string") return reasoning;
+  return reasoning?.[effort ?? "standard"];
+}
 function selectEngine(policy, ledger, exclude) {
   const available = policy.chain.find(
     (engine) => engine !== exclude && ledger.hasHeadroom(engine, policy.quotas[engine])
@@ -29069,6 +29077,10 @@ var SUMMARY_MAX_CHARS = 1500;
 var ALL_ENGINES_AT_CAPACITY_MESSAGE = "All delegation engines are at capacity \u2014 retry after quota cooldown.";
 var ESCALATION_IMPOSSIBLE_MESSAGE = "Escalation impossible: no alternative engine available. Re-delegate without escalate to allow the same engine.";
 var PARENT_DIFF_CONFLICT_MESSAGE = "Parent diff no longer applies onto the current base (the main branch advanced since the parent job). Re-delegate without parent_job_id for a fresh attempt.";
+function escalateEffortTier(parent) {
+  if (parent === "light") return "standard";
+  return "heavy";
+}
 function cloneCommandFor(platform, source, target) {
   if (platform === "darwin") return { command: "cp", args: ["-c", "-R", source, target] };
   if (platform === "linux") {
@@ -29152,6 +29164,7 @@ function buildDefaultWorkerRunner() {
         paths: req.paths,
         timeoutMs: worker2.timeoutMs,
         model: req.model,
+        reasoning: req.reasoning,
         maxBudgetUsd: worker2.maxBudgetUsd
       });
     }
@@ -29163,7 +29176,8 @@ function buildDefaultWorkerRunner() {
         prompt: req.prompt,
         paths: req.paths,
         timeoutMs: worker2.timeoutMs,
-        model: req.model
+        model: req.model,
+        reasoning: req.reasoning
       });
     }
     const codexCli = await resolveCodexCli(req.repoRoot);
@@ -29176,7 +29190,8 @@ function buildDefaultWorkerRunner() {
       prompt: req.prompt,
       paths: req.paths,
       timeoutMs: worker.timeoutMs,
-      model: req.model
+      model: req.model,
+      reasoning: req.reasoning
     });
   });
 }
@@ -29190,6 +29205,7 @@ async function runEngineChain(deps, runWorker, jobId, prompt, paths, revision, e
       const engine = selectEngine(deps.policy, deps.ledger, revision?.excludeEngine);
       if (engine === null) break;
       const model = resolveWorkerModel(deps.policy, engine, effort);
+      const reasoning = resolveWorkerReasoning(deps.policy, engine, effort);
       worktree = await createWorktreeSerialized(deps.repoRoot, jobId);
       await provisionNodeModules(deps.repoRoot, worktree.path);
       if (revision !== void 0) {
@@ -29209,6 +29225,7 @@ async function runEngineChain(deps, runWorker, jobId, prompt, paths, revision, e
       const outcome = await runWorker({
         engine,
         model,
+        reasoning,
         repoRoot: deps.repoRoot,
         worktreePath: worktree.path,
         prompt,
@@ -29253,6 +29270,7 @@ async function executeJob(deps, jobId, task, revision) {
   await mkdir(paths.jobDir, { recursive: true });
   const prompt = buildPrompt(task, revision);
   await writeFile(paths.promptFile, prompt, "utf8");
+  const effort = task.effort ?? (revision === void 0 ? void 0 : escalateEffortTier(revision.parentEffort));
   const { engine, worktree, outcome } = await runEngineChain(
     deps,
     runWorker,
@@ -29260,7 +29278,7 @@ async function executeJob(deps, jobId, task, revision) {
     prompt,
     paths,
     revision,
-    task.effort
+    effort
   );
   await deps.ledger.record({
     engine,
@@ -29316,7 +29334,8 @@ var JobStore = class {
       jobId,
       status: "queued",
       objective: task.objective,
-      createdAt: this.now()
+      createdAt: this.now(),
+      ...task.effort !== void 0 ? { effort: task.effort } : {}
     };
     this.records.set(jobId, record2);
     this.mirrorStatus(record2);
@@ -29650,6 +29669,9 @@ import { join as join6 } from "node:path";
 var POLICY_FILE_NAME = "policy.yaml";
 var EngineNameSchema = external_exports.enum(["codex", "claude", "antigravity"]);
 var EffortSchema = external_exports.enum(["light", "standard", "heavy"]);
+var CodexReasoningSchema = external_exports.enum(["minimal", "low", "medium", "high", "xhigh"]);
+var ClaudeReasoningSchema = external_exports.enum(["low", "medium", "high", "xhigh", "max"]);
+var AntigravityReasoningSchema = external_exports.enum(["low", "medium", "high"]);
 var ModelIdSchema = external_exports.string().min(1).refine((value) => !value.startsWith("-"), { message: 'model id must not start with "-"' });
 var QuotaConfigSchema = external_exports.object({
   maxJobsPer5h: external_exports.number().int().min(1).default(10),
@@ -29663,17 +29685,31 @@ var PolicySchema = external_exports.object({
     codex: external_exports.object({
       model: ModelIdSchema.optional(),
       models: external_exports.record(EffortSchema, ModelIdSchema).optional(),
+      // A scalar applies to every tier; a map has no cross-tier fallback. Missing
+      // reasoning means no CLI flag, preserving the engine's current default.
+      reasoning: external_exports.union([
+        CodexReasoningSchema,
+        external_exports.record(EffortSchema, CodexReasoningSchema)
+      ]).optional(),
       timeoutMs: external_exports.number().int().positive().default(6e5)
     }).default({}),
     claude: external_exports.object({
       model: ModelIdSchema.default("sonnet"),
       models: external_exports.record(EffortSchema, ModelIdSchema).optional(),
+      reasoning: external_exports.union([
+        ClaudeReasoningSchema,
+        external_exports.record(EffortSchema, ClaudeReasoningSchema)
+      ]).optional(),
       maxBudgetUsd: external_exports.number().positive().default(2),
       timeoutMs: external_exports.number().int().positive().default(6e5)
     }).default({}),
     antigravity: external_exports.object({
       model: ModelIdSchema.optional(),
       models: external_exports.record(EffortSchema, ModelIdSchema).optional(),
+      reasoning: external_exports.union([
+        AntigravityReasoningSchema,
+        external_exports.record(EffortSchema, AntigravityReasoningSchema)
+      ]).optional(),
       timeoutMs: external_exports.number().int().positive().default(6e5)
     }).default({})
   }).default({}),
@@ -29736,6 +29772,23 @@ function renderPolicyYaml(current, patch) {
       }
     }
   }
+  for (const [rawEngine, value] of Object.entries(patch.reasoning ?? {})) {
+    if (value === void 0) continue;
+    const engine = EngineNameSchema.parse(rawEngine);
+    const path = ["workers", engine, "reasoning"];
+    if (typeof value === "string") {
+      const currentReasoning = document.getIn(path, true);
+      if ((0, import_yaml2.isScalar)(currentReasoning)) currentReasoning.value = value;
+      else document.setIn(path, value);
+    } else {
+      const currentReasoning = document.getIn(path, true);
+      if ((0, import_yaml2.isScalar)(currentReasoning)) document.deleteIn(path);
+      for (const [rawTier, reasoning] of Object.entries(value)) {
+        const tier = EffortSchema.parse(rawTier);
+        document.setIn([...path, tier], reasoning);
+      }
+    }
+  }
   const rendered = document.toString();
   PolicySchema.parse((0, import_yaml2.parse)(rendered) ?? {});
   return rendered;
@@ -29777,7 +29830,7 @@ var DelegateTaskShape = {
   files: external_exports.array(external_exports.string()).optional().describe("Repo-relative paths the task is expected to touch"),
   context: external_exports.string().optional().describe("Constraints, conventions, or background the worker needs"),
   effort: external_exports.enum(["light", "standard", "heavy"]).optional().describe(
-    "Engine-neutral difficulty hint that selects a worker model tier when configured; omit for the standard tier."
+    "Difficulty tier of this subtask \u2014 always assess and set it: light = mechanical, single-file, fully specified; standard = typical bounded implementation with tests; heavy = cross-cutting, algorithmically tricky, or ambiguous. Selects the worker model and reasoning tier when configured. On a revision without an explicit effort, the server escalates one tier above the parent attempt."
   ),
   acceptance: external_exports.array(external_exports.string()).optional().describe("Verifiable acceptance criteria the result must satisfy"),
   parent_job_id: external_exports.string().min(1).optional().describe("id of a rejected job this task revises"),
@@ -29807,16 +29860,22 @@ var GetDelegationResultSchema = external_exports.object({
 // src/mcp/tools.ts
 var DIFF_INLINE_LIMIT_CHARS = 4e3;
 var ModelsValueSchema = external_exports.union([ModelIdSchema, external_exports.record(EffortSchema, ModelIdSchema)]);
+var ReasoningValueSchema = external_exports.union([
+  external_exports.string().min(1),
+  external_exports.record(EffortSchema, external_exports.string().min(1))
+]);
 var ConfigureDelegationInputShape = {
   action: external_exports.enum(["detect", "write"]),
   chain: external_exports.array(EngineNameSchema).optional(),
-  models: external_exports.record(EngineNameSchema, ModelsValueSchema).optional()
+  models: external_exports.record(EngineNameSchema, ModelsValueSchema).optional(),
+  reasoning: external_exports.record(EngineNameSchema, ReasoningValueSchema).optional()
 };
 var ConfigureDelegationInputSchema = external_exports.object(ConfigureDelegationInputShape);
 var ConfigureDelegationWriteInputSchema = external_exports.object({
   action: external_exports.literal("write"),
   chain: external_exports.array(EngineNameSchema).min(1),
-  models: external_exports.record(EngineNameSchema, ModelsValueSchema).default({})
+  models: external_exports.record(EngineNameSchema, ModelsValueSchema).default({}),
+  reasoning: external_exports.record(EngineNameSchema, ReasoningValueSchema).default({})
 });
 function buildCheckDelegationsPayload(serverInfo, jobs) {
   return { server: serverInfo, jobs };
@@ -29834,10 +29893,21 @@ function summarizePolicy(policy) {
   if (policy.workers.antigravity.models !== void 0) {
     modelTiers.antigravity = policy.workers.antigravity.models;
   }
+  const reasoning = {};
+  if (policy.workers.codex.reasoning !== void 0) {
+    reasoning.codex = policy.workers.codex.reasoning;
+  }
+  if (policy.workers.claude.reasoning !== void 0) {
+    reasoning.claude = policy.workers.claude.reasoning;
+  }
+  if (policy.workers.antigravity.reasoning !== void 0) {
+    reasoning.antigravity = policy.workers.antigravity.reasoning;
+  }
   return {
     chain: policy.chain,
     models,
-    ...Object.keys(modelTiers).length > 0 ? { modelTiers } : {}
+    ...Object.keys(modelTiers).length > 0 ? { modelTiers } : {},
+    ...Object.keys(reasoning).length > 0 ? { reasoning } : {}
   };
 }
 function buildConfigureDelegationDetectPayload(providers, models, currentPolicy) {
@@ -29883,11 +29953,11 @@ async function loadExistingPolicy(repoRoot) {
   return loadPolicy(repoRoot);
 }
 async function writeDelegationPolicy(repoRoot, input) {
-  const { chain, models } = parseConfigureDelegationWriteInput(input);
-  await writePolicyFile(repoRoot, { chain, models });
+  const { chain, models, reasoning } = parseConfigureDelegationWriteInput(input);
+  await writePolicyFile(repoRoot, { chain, models, reasoning });
   return summarizePolicy(await loadPolicy(repoRoot));
 }
-var DELEGATE_TASK_DESCRIPTION = "Delegate a bounded, well-specified implementation subtask to an isolated worker. Use for well-scoped implementation/tests/refactor tasks; keep architecture and validation yourself. An optional effort hint (light | standard | heavy) selects the worker model tier when configured. Returns immediately with a job_id while the worker runs in an isolated git worktree in the background. Poll check_delegations for progress; fetch the outcome with get_delegation_result. To revise a rejected attempt, set parent_job_id to its session-scoped job id and optionally set feedback to the reviewer feedback; set escalate=true to route away from the engine that produced the parent attempt.";
+var DELEGATE_TASK_DESCRIPTION = "Delegate a bounded, well-specified implementation subtask to an isolated worker. Use for well-scoped implementation/tests/refactor tasks; keep architecture and validation yourself. Always set the effort hint (light | standard | heavy) from your difficulty assessment \u2014 it selects the worker model and reasoning tier when configured; a revision without an explicit effort escalates one tier above the parent attempt. Returns immediately with a job_id while the worker runs in an isolated git worktree in the background. Poll check_delegations for progress; fetch the outcome with get_delegation_result. To revise a rejected attempt, set parent_job_id to its session-scoped job id and optionally set feedback to the reviewer feedback; set escalate=true to route away from the engine that produced the parent attempt.";
 var CHECK_DELEGATIONS_DESCRIPTION = "List all delegated jobs in this session with their status (queued | running | succeeded | failed). Read-only, instant.";
 var GET_DELEGATION_RESULT_DESCRIPTION = "Fetch the outcome of a delegated job by job_id. While queued/running returns the status; once finished returns the distilled summary + diff for review.";
 var CONFIGURE_DELEGATION_DESCRIPTION = "Inspect delegation worker availability and locally discovered models for each provider (newest first) alongside current routing settings, or update the ordered routing chain and worker model selections. Detection performs local checks only and does not run a worker.";
@@ -29944,7 +30014,8 @@ function resolveRevision(parent, input) {
     revision: {
       parentDiffPath: parent.result.diffPath,
       feedback: input.feedback,
-      excludeEngine: input.escalate === true ? parent.engine : void 0
+      excludeEngine: input.escalate === true ? parent.engine : void 0,
+      ...parent.effort !== void 0 ? { parentEffort: parent.effort } : {}
     }
   };
 }
