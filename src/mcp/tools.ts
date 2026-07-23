@@ -5,6 +5,8 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 import { detectAuthenticatedProviders } from '../config/detect'
 import type { ProviderDetection } from '../config/detect'
+import { listAllProviderModels } from '../config/models'
+import type { ModelOption, ProviderModels } from '../config/models'
 import { writePolicyFile } from '../config/policy-writer'
 import type { RevisionSpec } from '../jobs/executor'
 import type { JobStore } from '../jobs/store'
@@ -51,6 +53,14 @@ type PolicySummary = {
 
 type ConfigureDelegationWriteInput = z.infer<typeof ConfigureDelegationWriteInputSchema>
 
+type ProviderDetectPayload = {
+  readonly available: boolean
+  readonly detail: string
+  readonly models: readonly ModelOption[]
+  readonly modelsSource: ProviderModels['source']
+  readonly defaultModel?: string
+}
+
 export function buildCheckDelegationsPayload(
   serverInfo: ServerInfo,
   jobs: readonly CheckDelegationJob[],
@@ -80,16 +90,41 @@ function summarizePolicy(policy: Policy): PolicySummary {
 
 export function buildConfigureDelegationDetectPayload(
   providers: Record<EngineName, ProviderDetection>,
+  models: Record<EngineName, ProviderModels>,
   currentPolicy: Policy | null,
 ): {
-  readonly providers: Record<EngineName, { readonly available: boolean }>
+  readonly providers: Record<EngineName, ProviderDetectPayload>
   readonly currentPolicy: PolicySummary | null
 } {
   return {
     providers: {
-      codex: { available: providers.codex.available },
-      claude: { available: providers.claude.available },
-      antigravity: { available: providers.antigravity.available },
+      codex: {
+        available: providers.codex.available,
+        detail: providers.codex.detail,
+        models: models.codex.models,
+        modelsSource: models.codex.source,
+        ...(models.codex.defaultModel === undefined
+          ? {}
+          : { defaultModel: models.codex.defaultModel }),
+      },
+      claude: {
+        available: providers.claude.available,
+        detail: providers.claude.detail,
+        models: models.claude.models,
+        modelsSource: models.claude.source,
+        ...(models.claude.defaultModel === undefined
+          ? {}
+          : { defaultModel: models.claude.defaultModel }),
+      },
+      antigravity: {
+        available: providers.antigravity.available,
+        detail: providers.antigravity.detail,
+        models: models.antigravity.models,
+        modelsSource: models.antigravity.source,
+        ...(models.antigravity.defaultModel === undefined
+          ? {}
+          : { defaultModel: models.antigravity.defaultModel }),
+      },
     },
     currentPolicy: currentPolicy === null ? null : summarizePolicy(currentPolicy),
   }
@@ -132,7 +167,7 @@ const GET_DELEGATION_RESULT_DESCRIPTION =
   'Fetch the outcome of a delegated job by job_id. While queued/running returns the status; once finished returns the distilled summary + diff for review.'
 
 const CONFIGURE_DELEGATION_DESCRIPTION =
-  'Inspect available delegation workers and current routing settings, or update the ordered routing chain and worker model selections. Detection performs local checks only and does not run a worker.'
+  'Inspect delegation worker availability and locally discovered models for each provider (newest first) alongside current routing settings, or update the ordered routing chain and worker model selections. Detection performs local checks only and does not run a worker.'
 
 function formatDiffSection(diff: string | null, diffPath: string): string {
   const diffText = diff ?? ''
@@ -270,12 +305,15 @@ export function registerDelegateTools(
       try {
         const parsed = ConfigureDelegationInputSchema.parse(input)
         if (parsed.action === 'detect') {
-          const [providers, currentPolicy] = await Promise.all([
+          const [providers, models, currentPolicy] = await Promise.all([
             detectAuthenticatedProviders(repoRoot),
+            listAllProviderModels(repoRoot),
             loadExistingPolicy(repoRoot),
           ])
           return textResult(
-            JSON.stringify(buildConfigureDelegationDetectPayload(providers, currentPolicy)),
+            JSON.stringify(
+              buildConfigureDelegationDetectPayload(providers, models, currentPolicy),
+            ),
             false,
           )
         }

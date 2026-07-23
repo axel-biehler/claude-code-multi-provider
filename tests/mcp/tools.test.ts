@@ -49,6 +49,22 @@ describe('buildCheckDelegationsPayload', () => {
 
 describe('configure_delegation logic', () => {
   const temporaryRoots: string[] = []
+  const discoveredModels = {
+    codex: {
+      models: [{ id: 'gpt-5.6-sol', recommended: true }],
+      source: 'catalog',
+      defaultModel: 'gpt-5.6-sol',
+    },
+    claude: {
+      models: [{ id: 'sonnet', recommended: true }],
+      source: 'catalog',
+      defaultModel: 'sonnet',
+    },
+    antigravity: {
+      models: [{ id: 'gemini-3.6-flash-high', recommended: true }],
+      source: 'cli',
+    },
+  } as const
 
   afterEach(async () => {
     await Promise.all(
@@ -56,12 +72,12 @@ describe('configure_delegation logic', () => {
     )
   })
 
-  test('builds the detect payload with provider availability and configured models only', () => {
+  test('builds the detect payload with provider detection and discovered model details', () => {
     // Arrange
     const providers = {
-      codex: { available: true, detail: 'authenticated' },
-      claude: { available: false, detail: 'not authenticated' },
-      antigravity: { available: true, detail: 'authenticated' },
+      codex: { available: true, detail: 'binary: /opt/local/bin/codex' },
+      claude: { available: false, detail: 'auth: missing credentials' },
+      antigravity: { available: true, detail: 'binary: /usr/local/bin/agy' },
     }
     const policy = PolicySchema.parse({
       chain: ['codex', 'antigravity'],
@@ -72,21 +88,63 @@ describe('configure_delegation logic', () => {
     })
 
     // Act
-    const payload = buildConfigureDelegationDetectPayload(providers, policy)
+    const payload = buildConfigureDelegationDetectPayload(
+      providers,
+      discoveredModels,
+      policy,
+    )
 
     // Assert
     expect(payload).toEqual({
       providers: {
-        codex: { available: true },
-        claude: { available: false },
-        antigravity: { available: true },
+        codex: {
+          available: true,
+          detail: 'binary: /opt/local/bin/codex',
+          models: [{ id: 'gpt-5.6-sol', recommended: true }],
+          modelsSource: 'catalog',
+          defaultModel: 'gpt-5.6-sol',
+        },
+        claude: {
+          available: false,
+          detail: 'auth: missing credentials',
+          models: [{ id: 'sonnet', recommended: true }],
+          modelsSource: 'catalog',
+          defaultModel: 'sonnet',
+        },
+        antigravity: {
+          available: true,
+          detail: 'binary: /usr/local/bin/agy',
+          models: [{ id: 'gemini-3.6-flash-high', recommended: true }],
+          modelsSource: 'cli',
+        },
       },
       currentPolicy: {
         chain: ['codex', 'antigravity'],
         models: { claude: 'opus', antigravity: 'gemini-3.5-flash-high' },
       },
     })
-    expect(buildConfigureDelegationDetectPayload(providers, null).currentPolicy).toBeNull()
+    expect(payload.providers.antigravity).not.toHaveProperty('defaultModel')
+    expect(payload.providers.codex.models).toBe(discoveredModels.codex.models)
+  })
+
+  test('returns a null current policy without changing provider details', () => {
+    // Arrange
+    const providers = {
+      codex: { available: true, detail: 'codex detail' },
+      claude: { available: false, detail: 'claude detail' },
+      antigravity: { available: false, detail: 'antigravity detail' },
+    }
+
+    // Act
+    const payload = buildConfigureDelegationDetectPayload(
+      providers,
+      discoveredModels,
+      null,
+    )
+
+    // Assert
+    expect(payload.currentPolicy).toBeNull()
+    expect(payload.providers.codex.detail).toBe('codex detail')
   })
 
   test('includes configured model tiers in the detect payload', () => {
@@ -105,7 +163,11 @@ describe('configure_delegation logic', () => {
     })
 
     // Act
-    const payload = buildConfigureDelegationDetectPayload(providers, policy)
+    const payload = buildConfigureDelegationDetectPayload(
+      providers,
+      discoveredModels,
+      policy,
+    )
 
     // Assert
     expect(payload.currentPolicy?.modelTiers).toEqual({
