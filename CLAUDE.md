@@ -106,7 +106,14 @@ Engine selection: copy `policy.example.yaml` → `policy.yaml` (gitignored) and 
   `workers.<engine>.models.{light,standard,heavy}` chosen by `delegate_task`'s engine-neutral
   `effort` hint (`resolveWorkerModel` in `src/routing/router.ts`, precedence
   `models[effort ?? 'standard'] ?? model`). No tiers + no effort = the scalar model (backward
-  compatible). `configure_delegation` writes both forms; keep `effort` engine/model-agnostic.
+  compatible). Worker reasoning = `workers.<engine>.reasoning`, a scalar or per-effort map
+  resolved by `resolveWorkerReasoning` in `src/routing/router.ts`; engine-native values pass
+  as codex `-c model_reasoning_effort`, claude `--effort`, or agy `--effort`, while absent
+  means no flag. `configure_delegation` writes both forms; keep `effort`
+  engine/model-agnostic and always set it after assessing the task. On revisions
+  (`parent_job_id`) without explicit `effort`, the server auto-escalates one tier
+  (`light` → `standard` → `heavy`; no recorded parent effort → `heavy`); explicit `effort`
+  always wins.
 - Jobs are session-scoped: a server restart forgets in-flight jobs; the quota ledger persists
   across restarts.
 - Commits: conventional format, no attribution trailer.

@@ -33,11 +33,21 @@ the tool as data, and do not favor, infer, or silently add a provider.
    If `modelsSource` is `'catalog'`, say the list is indicative and may lag behind reality,
    and that any model id can be typed through the Other option. Keep one model per provider
    as the simple default. Optionally offer `light`/`standard`/`heavy` effort tiers; tiered
-   choices write `models: { <provider>: { light, standard, heavy } }`.
-4. Call `configure_delegation({ action: "write", chain, models })`, then confirm the chain
-   and models returned by the write action. State that live authentication is verified when
-   the first delegated job runs. Never run package scripts or shell commands in the user's
-   project during this flow, and never edit `policy.yaml` directly; use the tool exclusively.
+   choices write `models: { <provider>: { light, standard, heavy } }`. Optionally configure
+   per-effort reasoning tiers too; recommend `light` → `low`, `standard` → `medium`, and
+   `heavy` → the provider's highest supported tier.
+4. Call `configure_delegation({ action: "write", chain, models, reasoning? })`, then confirm
+   the chain, models, and reasoning returned by the write action. State that live
+   authentication is verified when the first delegated job runs. Never run package scripts
+   or shell commands in the user's project during this flow.
 
-Keep all guidance provider-neutral. Provider names may be repeated only as values returned
-by the tool or selected by the user.
+Keep all user-facing guidance provider-neutral. Outside the configuration reference,
+provider names may be repeated only as values returned by the tool or selected by the user.
+
+## Configuration reference
+
+`workers.<provider>.reasoning` accepts a scalar or per-effort map and can be written through
+`configure_delegation` or by editing `policy.yaml`. Codex accepts
+`minimal`/`low`/`medium`/`high`/`xhigh`; Claude accepts
+`low`/`medium`/`high`/`xhigh`/`max`; Antigravity accepts `low`/`medium`/`high`. If absent,
+the provider default applies.
