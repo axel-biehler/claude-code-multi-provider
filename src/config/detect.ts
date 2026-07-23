@@ -73,9 +73,9 @@ async function detectCodex(repoRoot: string): Promise<ProviderStaticDetection> {
     return {
       engine: 'codex',
       available: false,
-      detail: 'CLI not found — run: npm install',
+      detail: 'CLI not found on PATH — install: npm i -g @openai/codex && codex login',
       executable: codexBin,
-      reports: [{ status: 'fail', message: 'codex CLI not found — run: npm install' }],
+      reports: [{ status: 'fail', message: 'codex CLI not found on PATH — install: npm i -g @openai/codex && codex login' }],
     }
   }
 
@@ -84,11 +84,11 @@ async function detectCodex(repoRoot: string): Promise<ProviderStaticDetection> {
     return {
       engine: 'codex',
       available: false,
-      detail: 'not authenticated — run: npx codex login',
+      detail: 'not authenticated — run: codex login',
       executable: codexBin,
       reports: [
         binaryReport,
-        { status: 'fail', message: 'codex not authenticated — run: npx codex login' },
+        { status: 'fail', message: 'codex not authenticated — run: codex login' },
       ],
     }
   }
@@ -119,7 +119,7 @@ async function detectClaude(): Promise<ProviderStaticDetection> {
   return {
     engine: 'claude',
     available: true,
-    detail: `binary: ${version}; live authentication check requires: npm run preflight`,
+    detail: `binary: ${version}; authentication is verified when the first delegated job runs`,
     reports: [{ status: 'ok', message: `claude binary: ${version}` }],
   }
 }
@@ -144,7 +144,7 @@ export async function detectAntigravity(): Promise<ProviderStaticDetection> {
   return {
     engine: 'antigravity',
     available: true,
-    detail: `binary: ${version}; live authentication check requires: npm run preflight`,
+    detail: `binary: ${version}; authentication is verified when the first delegated job runs`,
     reports: [{ status: 'ok', message: `antigravity binary: ${version}` }],
   }
 }
