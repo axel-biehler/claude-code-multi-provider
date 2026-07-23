@@ -4,11 +4,14 @@ import { join, resolve } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { pathToFileURL } from 'node:url'
 import { detectAuthenticatedProviders } from '../src/config/detect'
+import { listAllProviderModels } from '../src/config/models'
+import type { ModelOption, ProviderModels } from '../src/config/models'
 import { writePolicyFile } from '../src/config/policy-writer'
 import type { PolicyPatch } from '../src/config/policy-writer'
-import type { EngineName } from '../src/types'
+import type { Effort, EngineName } from '../src/types'
 
 const PROVIDERS = ['codex', 'claude', 'antigravity'] as const satisfies readonly EngineName[]
+const EFFORT_TIERS = ['light', 'standard', 'heavy'] as const satisfies readonly Effort[]
 
 function isEngineName(value: string): value is EngineName {
   return value === 'codex' || value === 'claude' || value === 'antigravity'
@@ -34,14 +37,59 @@ export function parseProviderSelection(
 export function buildPolicyPatch(
   chain: readonly EngineName[],
   modelAnswers: Partial<Record<EngineName, string>>,
+  tierAnswers: Partial<Record<EngineName, Partial<Record<Effort, string>>>> = {},
 ): PolicyPatch {
-  const models: Partial<Record<EngineName, string>> = {}
+  const models: NonNullable<PolicyPatch['models']> = {}
   for (const provider of chain) {
+    const answeredTiers: Partial<Record<Effort, string>> = {}
+    for (const tier of EFFORT_TIERS) {
+      const model = tierAnswers[provider]?.[tier]?.trim() ?? ''
+      if (model !== '') answeredTiers[tier] = model
+    }
+    if (Object.keys(answeredTiers).length > 0) {
+      models[provider] = answeredTiers
+      continue
+    }
+
     const model = modelAnswers[provider]?.trim() ?? ''
     if (provider === 'claude') models.claude = model || 'sonnet'
     else if (model !== '') models[provider] = model
   }
   return { chain: [...chain], models }
+}
+
+export function resolveModelAnswer(
+  answer: string,
+  models: readonly ModelOption[],
+): string {
+  const trimmed = answer.trim()
+  if (!/^[+-]?\d+$/.test(trimmed)) return answer
+
+  const choice = Number(trimmed)
+  if (!Number.isSafeInteger(choice) || choice < 1 || choice > models.length) {
+    throw new Error(`Model number must be between 1 and ${models.length}`)
+  }
+  return models[choice - 1]!.id
+}
+
+export function formatModelMenu(
+  provider: string,
+  discovered: ProviderModels,
+): readonly string[] {
+  if (discovered.models.length === 0) return []
+
+  const lines = [`${provider} models (newest first):`]
+  for (const [index, model] of discovered.models.entries()) {
+    const markers: string[] = []
+    if (model.recommended === true) markers.push('(recommended)')
+    if (model.id === discovered.defaultModel) markers.push('(local default)')
+    const suffix = markers.length === 0 ? '' : ` ${markers.join(' ')}`
+    lines.push(`  ${index + 1}. ${model.id}${suffix}`)
+  }
+  if (discovered.source === 'catalog') {
+    lines.push('  Catalog list is indicative; you can type any model id.')
+  }
+  return lines
 }
 
 function isMissingFile(error: unknown): boolean {
@@ -79,6 +127,25 @@ async function useDefaultPolicy(repoRoot: string): Promise<void> {
   )
 }
 
+function printModelMenu(provider: EngineName, discovered: ProviderModels): void {
+  for (const line of formatModelMenu(provider, discovered)) console.log(line)
+}
+
+async function askForModel(
+  readline: ReturnType<typeof createInterface>,
+  prompt: string,
+  models: readonly ModelOption[],
+): Promise<string> {
+  while (true) {
+    const answer = await readline.question(prompt)
+    try {
+      return resolveModelAnswer(answer, models)
+    } catch (error) {
+      console.log(error instanceof Error ? error.message : String(error))
+    }
+  }
+}
+
 async function main(): Promise<void> {
   const repoRoot = process.cwd()
   if (!process.stdin.isTTY) {
@@ -87,6 +154,7 @@ async function main(): Promise<void> {
   }
 
   const detected = await detectAuthenticatedProviders(repoRoot)
+  const providerModels = await listAllProviderModels(repoRoot)
   const available = PROVIDERS.filter((provider) => detected[provider].available)
   if (available.length === 0) {
     console.log('No authenticated providers detected.')
@@ -99,6 +167,9 @@ async function main(): Promise<void> {
 
   console.log('Available providers:')
   for (const provider of available) console.log(`  ${provider}: ${detected[provider].detail}`)
+  console.log('The chain is a priority order.')
+  console.log('Provider 1 receives every delegated job; later providers are automatic fallbacks.')
+  console.log('They are used only when an earlier provider hits a quota or auth wall.')
 
   // @types/node 26 types Readable[Symbol.asyncIterator] as NodeJS.AsyncIterator, but
   // ReadLineOptions.input expects AsyncIterableIterator — a defs skew, not a runtime one
@@ -122,10 +193,36 @@ async function main(): Promise<void> {
 
     const modelAnswers: Partial<Record<EngineName, string>> = {}
     for (const provider of chain) {
+      printModelMenu(provider, providerModels[provider])
       const defaultHint = provider === 'claude' ? ' [sonnet]' : ' [provider default]'
-      modelAnswers[provider] = await readline.question(`${provider} model${defaultHint}: `)
+      modelAnswers[provider] = await askForModel(
+        readline,
+        `${provider} model${defaultHint}: `,
+        providerModels[provider].models,
+      )
     }
-    const patch = buildPolicyPatch(chain, modelAnswers)
+
+    const tierAnswers: Partial<
+      Record<EngineName, Partial<Record<Effort, string>>>
+    > = {}
+    const configureTiers = await readline.question(
+      'Configure per-effort model tiers (light/standard/heavy)? [y/N]: ',
+    )
+    if (['y', 'yes'].includes(configureTiers.trim().toLowerCase())) {
+      for (const provider of chain) {
+        printModelMenu(provider, providerModels[provider])
+        const answers: Partial<Record<Effort, string>> = {}
+        for (const tier of EFFORT_TIERS) {
+          answers[tier] = await askForModel(
+            readline,
+            `${provider} ${tier} model [skip]: `,
+            providerModels[provider].models,
+          )
+        }
+        tierAnswers[provider] = answers
+      }
+    }
+    const patch = buildPolicyPatch(chain, modelAnswers, tierAnswers)
 
     if (await policyExists(repoRoot)) {
       const confirmation = await readline.question(
@@ -140,7 +237,15 @@ async function main(): Promise<void> {
     await writePolicyFile(repoRoot, patch)
     console.log(`Configured chain: ${chain.join(' -> ')}`)
     for (const provider of chain) {
-      console.log(`  ${provider} model: ${patch.models?.[provider] ?? 'provider default'}`)
+      const configured = patch.models?.[provider]
+      if (configured === undefined || typeof configured === 'string') {
+        console.log(`  ${provider} model: ${configured ?? 'provider default'}`)
+        continue
+      }
+      const tiers = EFFORT_TIERS.filter((tier) => configured[tier] !== undefined)
+        .map((tier) => `${tier}=${configured[tier]}`)
+        .join(', ')
+      console.log(`  ${provider} models: ${tiers}`)
     }
     console.log('Run npm run preflight for a live authentication check.')
   } finally {
