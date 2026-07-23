@@ -84,6 +84,19 @@ describe('JobStore', () => {
     expect(store.get(jobId)?.startedAt).toBe(1_000_000)
   })
 
+  test('records an explicit task effort and omits effort when the task has none', () => {
+    // Arrange
+    const { store } = createHarness()
+
+    // Act
+    const explicit = store.enqueue({ objective: 'heavy task', effort: 'heavy' })
+    const implicit = store.enqueue({ objective: 'unspecified task' })
+
+    // Assert
+    expect(store.get(explicit.jobId)?.effort).toBe('heavy')
+    expect(store.get(implicit.jobId)).not.toHaveProperty('effort')
+  })
+
   test('honors maxConcurrentJobs and promotes the queued job when a slot frees up', async () => {
     // Arrange
     const { store, deferreds } = createHarness({ maxConcurrentJobs: 1 })

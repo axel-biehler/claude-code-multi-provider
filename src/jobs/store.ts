@@ -61,6 +61,7 @@ export class JobStore {
       status: 'queued',
       objective: task.objective,
       createdAt: this.now(),
+      ...(task.effort !== undefined ? { effort: task.effort } : {}),
     }
     this.records.set(jobId, record)
     this.mirrorStatus(record)

@@ -10,6 +10,9 @@ export interface PolicyPatch {
   readonly models?: Partial<
     Record<EngineName, string | Partial<Record<Effort, string>>>
   >
+  readonly reasoning?: Partial<
+    Record<EngineName, string | Partial<Record<Effort, string>>>
+  >
 }
 
 export function renderPolicyYaml(current: string | null, patch: PolicyPatch): string {
@@ -35,6 +38,24 @@ export function renderPolicyYaml(current: string | null, patch: PolicyPatch): st
       for (const [rawTier, model] of Object.entries(value)) {
         const tier = EffortSchema.parse(rawTier)
         document.setIn(['workers', engine, 'models', tier], model)
+      }
+    }
+  }
+
+  for (const [rawEngine, value] of Object.entries(patch.reasoning ?? {})) {
+    if (value === undefined) continue
+    const engine = EngineNameSchema.parse(rawEngine)
+    const path = ['workers', engine, 'reasoning'] as const
+    if (typeof value === 'string') {
+      const currentReasoning = document.getIn(path, true)
+      if (isScalar(currentReasoning)) currentReasoning.value = value
+      else document.setIn(path, value)
+    } else {
+      const currentReasoning = document.getIn(path, true)
+      if (isScalar(currentReasoning)) document.deleteIn(path)
+      for (const [rawTier, reasoning] of Object.entries(value)) {
+        const tier = EffortSchema.parse(rawTier)
+        document.setIn([...path, tier], reasoning)
       }
     }
   }

@@ -65,6 +65,52 @@ retention:
     expect(policy.workers.claude.models).toEqual({ heavy: 'big', light: 'small' })
   })
 
+  test('writes scalar reasoning and round-trips through the policy schema', () => {
+    // Act
+    const rendered = renderPolicyYaml(null, {
+      reasoning: { codex: 'high' },
+    })
+    const policy = PolicySchema.parse(parse(rendered))
+
+    // Assert
+    expect(policy.workers.codex.reasoning).toBe('high')
+  })
+
+  test('writes per-tier reasoning and round-trips through the policy schema', () => {
+    // Act
+    const rendered = renderPolicyYaml(null, {
+      reasoning: { claude: { light: 'low', heavy: 'max' } },
+    })
+    const policy = PolicySchema.parse(parse(rendered))
+
+    // Assert
+    expect(policy.workers.claude.reasoning).toEqual({ light: 'low', heavy: 'max' })
+  })
+
+  test('cleanly replaces scalar reasoning with a per-tier map', () => {
+    // Arrange
+    const current = `workers:
+  claude:
+    reasoning: medium
+`
+
+    // Act
+    const rendered = renderPolicyYaml(current, {
+      reasoning: { claude: { light: 'low', heavy: 'max' } },
+    })
+    const parsed = parse(rendered) as {
+      workers: { claude: { reasoning: unknown } }
+    }
+
+    // Assert
+    expect(parsed.workers.claude.reasoning).toEqual({ light: 'low', heavy: 'max' })
+    expect(rendered).not.toContain('reasoning: medium')
+    expect(PolicySchema.parse(parsed).workers.claude.reasoning).toEqual({
+      light: 'low',
+      heavy: 'max',
+    })
+  })
+
   test('starts from complete defaults when no current policy exists', () => {
     // Act
     const rendered = renderPolicyYaml(null, {
