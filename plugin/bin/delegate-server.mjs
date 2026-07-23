@@ -14223,7 +14223,7 @@ var require_dist2 = __commonJS({
 });
 
 // src/server.ts
-import { execFile as execFile5 } from "node:child_process";
+import { execFile as execFile6 } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { promisify as promisify4 } from "node:util";
 
@@ -29340,7 +29340,7 @@ var JobStore = class {
 
 // src/mcp/tools.ts
 import { access as access3 } from "node:fs/promises";
-import { join as join7 } from "node:path";
+import { join as join8 } from "node:path";
 
 // src/config/detect.ts
 import { execFile as execFile4 } from "node:child_process";
@@ -29388,9 +29388,9 @@ async function detectCodex(repoRoot) {
     return {
       engine: "codex",
       available: false,
-      detail: "CLI not found \u2014 run: npm install",
+      detail: "CLI not found on PATH \u2014 install: npm i -g @openai/codex && codex login",
       executable: codexBin,
-      reports: [{ status: "fail", message: "codex CLI not found \u2014 run: npm install" }]
+      reports: [{ status: "fail", message: "codex CLI not found on PATH \u2014 install: npm i -g @openai/codex && codex login" }]
     };
   }
   const binaryReport = { status: "ok", message: `codex binary: ${codexBin}` };
@@ -29398,11 +29398,11 @@ async function detectCodex(repoRoot) {
     return {
       engine: "codex",
       available: false,
-      detail: "not authenticated \u2014 run: npx codex login",
+      detail: "not authenticated \u2014 run: codex login",
       executable: codexBin,
       reports: [
         binaryReport,
-        { status: "fail", message: "codex not authenticated \u2014 run: npx codex login" }
+        { status: "fail", message: "codex not authenticated \u2014 run: codex login" }
       ]
     };
   }
@@ -29430,7 +29430,7 @@ async function detectClaude() {
   return {
     engine: "claude",
     available: true,
-    detail: `binary: ${version2}; live authentication check requires: npm run preflight`,
+    detail: `binary: ${version2}; authentication is verified when the first delegated job runs`,
     reports: [{ status: "ok", message: `claude binary: ${version2}` }]
   };
 }
@@ -29453,7 +29453,7 @@ async function detectAntigravity() {
   return {
     engine: "antigravity",
     available: true,
-    detail: `binary: ${version2}; live authentication check requires: npm run preflight`,
+    detail: `binary: ${version2}; authentication is verified when the first delegated job runs`,
     reports: [{ status: "ok", message: `antigravity binary: ${version2}` }]
   };
 }
@@ -29475,15 +29475,116 @@ async function detectAuthenticatedProviders(repoRoot) {
   };
 }
 
+// src/config/models.ts
+import { execFile as execFile5 } from "node:child_process";
+import { readFile as readFile5 } from "node:fs/promises";
+import { homedir as homedir2 } from "node:os";
+import { join as join5 } from "node:path";
+var EXEC_MAX_BUFFER_BYTES2 = 16 * 1024 * 1024;
+var ANTIGRAVITY_CATALOG = [
+  { id: "gemini-3.6-flash-high", recommended: true },
+  { id: "gemini-3.6-flash-medium" },
+  { id: "gemini-3.6-flash-low" },
+  { id: "claude-sonnet-4-6" }
+];
+var CLAUDE_CATALOG = [
+  { id: "fable" },
+  { id: "opus" },
+  { id: "sonnet", recommended: true },
+  { id: "haiku" }
+];
+function antigravityFallback() {
+  return { models: ANTIGRAVITY_CATALOG, source: "catalog" };
+}
+function codexFallback() {
+  return { models: [], source: "catalog" };
+}
+function run2(command, args) {
+  return new Promise((resolvePromise) => {
+    try {
+      const child = execFile5(
+        command,
+        [...args],
+        { maxBuffer: EXEC_MAX_BUFFER_BYTES2 },
+        (error2, stdout) => {
+          if (error2 === null) {
+            resolvePromise({ exitCode: 0, stdout });
+            return;
+          }
+          const raw = error2;
+          resolvePromise({
+            exitCode: typeof raw.code === "number" ? raw.code : -1,
+            stdout
+          });
+        }
+      );
+      child.stdin?.end();
+    } catch {
+      resolvePromise({ exitCode: -1, stdout: "" });
+    }
+  });
+}
+function parseAgyModelsOutput(stdout) {
+  return stdout.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0).map((id, index) => index === 0 ? { id, recommended: true } : { id });
+}
+function parseCodexConfigModel(toml) {
+  for (const line of toml.split(/\r?\n/)) {
+    if (/^\s*\[/.test(line)) return void 0;
+    const match = /^\s*model\s*=\s*"([^"]+)"\s*(?:#.*)?$/.exec(line);
+    if (match !== null) return match[1];
+  }
+  return void 0;
+}
+async function listAntigravityModels() {
+  const result = await run2("agy", ["models"]);
+  if (result.exitCode !== 0) return antigravityFallback();
+  return { models: parseAgyModelsOutput(result.stdout), source: "cli" };
+}
+async function listCodexModels() {
+  let config2;
+  try {
+    config2 = await readFile5(join5(homedir2(), ".codex", "config.toml"), "utf8");
+  } catch {
+    return codexFallback();
+  }
+  const model = parseCodexConfigModel(config2);
+  if (model === void 0) return codexFallback();
+  return {
+    models: [{ id: model, recommended: true }],
+    source: "catalog",
+    defaultModel: model
+  };
+}
+async function listClaudeModels() {
+  return {
+    models: CLAUDE_CATALOG,
+    source: "catalog",
+    defaultModel: "sonnet"
+  };
+}
+function listProviderModels(engine, repoRoot) {
+  if (engine === "antigravity") return listAntigravityModels();
+  if (engine === "codex") return listCodexModels();
+  return listClaudeModels();
+}
+async function listAllProviderModels(repoRoot) {
+  const [codex, claude, antigravity] = await Promise.all([
+    listProviderModels("codex", repoRoot).catch(codexFallback),
+    listProviderModels("claude", repoRoot).catch(listClaudeModels),
+    listProviderModels("antigravity", repoRoot).catch(antigravityFallback)
+  ]);
+  return { codex, claude, antigravity };
+}
+
 // src/config/policy-writer.ts
 var import_yaml2 = __toESM(require_dist2(), 1);
-import { readFile as readFile6, writeFile as writeFile3 } from "node:fs/promises";
-import { join as join6 } from "node:path";
+import { readFile as readFile7, writeFile as writeFile3 } from "node:fs/promises";
+import { join as join7 } from "node:path";
 
 // src/routing/policy.ts
 var import_yaml = __toESM(require_dist2(), 1);
-import { readFile as readFile5 } from "node:fs/promises";
-import { join as join5 } from "node:path";
+import { readFile as readFile6 } from "node:fs/promises";
+import { join as join6 } from "node:path";
 var POLICY_FILE_NAME = "policy.yaml";
 var EngineNameSchema = external_exports.enum(["codex", "claude", "antigravity"]);
 var EffortSchema = external_exports.enum(["light", "standard", "heavy"]);
@@ -29527,10 +29628,10 @@ var PolicySchema = external_exports.object({
 var DEFAULT_POLICY = PolicySchema.parse({});
 DEFAULT_POLICY.quotas.codex;
 async function loadPolicy(repoRoot) {
-  const policyPath = join5(repoRoot, POLICY_FILE_NAME);
+  const policyPath = join6(repoRoot, POLICY_FILE_NAME);
   let raw;
   try {
-    raw = await readFile5(policyPath, "utf8");
+    raw = await readFile6(policyPath, "utf8");
   } catch (error2) {
     if (isMissingFile(error2)) return DEFAULT_POLICY;
     const detail = error2 instanceof Error ? error2.message : String(error2);
@@ -29578,15 +29679,15 @@ function renderPolicyYaml(current, patch) {
   return rendered;
 }
 async function writePolicyFile(repoRoot, patch) {
-  const policyPath = join6(repoRoot, "policy.yaml");
-  const examplePath = join6(repoRoot, "policy.example.yaml");
+  const policyPath = join7(repoRoot, "policy.yaml");
+  const examplePath = join7(repoRoot, "policy.example.yaml");
   let current;
   try {
-    current = await readFile6(policyPath, "utf8");
+    current = await readFile7(policyPath, "utf8");
   } catch (error2) {
     if (!isMissingFile2(error2)) throw readError(policyPath, error2);
     try {
-      current = await readFile6(examplePath, "utf8");
+      current = await readFile7(examplePath, "utf8");
     } catch (exampleError) {
       throw readError(examplePath, exampleError);
     }
@@ -29676,12 +29777,30 @@ function summarizePolicy(policy) {
     ...Object.keys(modelTiers).length > 0 ? { modelTiers } : {}
   };
 }
-function buildConfigureDelegationDetectPayload(providers, currentPolicy) {
+function buildConfigureDelegationDetectPayload(providers, models, currentPolicy) {
   return {
     providers: {
-      codex: { available: providers.codex.available },
-      claude: { available: providers.claude.available },
-      antigravity: { available: providers.antigravity.available }
+      codex: {
+        available: providers.codex.available,
+        detail: providers.codex.detail,
+        models: models.codex.models,
+        modelsSource: models.codex.source,
+        ...models.codex.defaultModel === void 0 ? {} : { defaultModel: models.codex.defaultModel }
+      },
+      claude: {
+        available: providers.claude.available,
+        detail: providers.claude.detail,
+        models: models.claude.models,
+        modelsSource: models.claude.source,
+        ...models.claude.defaultModel === void 0 ? {} : { defaultModel: models.claude.defaultModel }
+      },
+      antigravity: {
+        available: providers.antigravity.available,
+        detail: providers.antigravity.detail,
+        models: models.antigravity.models,
+        modelsSource: models.antigravity.source,
+        ...models.antigravity.defaultModel === void 0 ? {} : { defaultModel: models.antigravity.defaultModel }
+      }
     },
     currentPolicy: currentPolicy === null ? null : summarizePolicy(currentPolicy)
   };
@@ -29690,7 +29809,7 @@ function parseConfigureDelegationWriteInput(input) {
   return ConfigureDelegationWriteInputSchema.parse(input);
 }
 async function loadExistingPolicy(repoRoot) {
-  const policyPath = join7(repoRoot, "policy.yaml");
+  const policyPath = join8(repoRoot, "policy.yaml");
   try {
     await access3(policyPath);
   } catch (error2) {
@@ -29708,7 +29827,7 @@ async function writeDelegationPolicy(repoRoot, input) {
 var DELEGATE_TASK_DESCRIPTION = "Delegate a bounded, well-specified implementation subtask to an isolated worker. Use for well-scoped implementation/tests/refactor tasks; keep architecture and validation yourself. An optional effort hint (light | standard | heavy) selects the worker model tier when configured. Returns immediately with a job_id while the worker runs in an isolated git worktree in the background. Poll check_delegations for progress; fetch the outcome with get_delegation_result. To revise a rejected attempt, set parent_job_id to its session-scoped job id and optionally set feedback to the reviewer feedback; set escalate=true to route away from the engine that produced the parent attempt.";
 var CHECK_DELEGATIONS_DESCRIPTION = "List all delegated jobs in this session with their status (queued | running | succeeded | failed). Read-only, instant.";
 var GET_DELEGATION_RESULT_DESCRIPTION = "Fetch the outcome of a delegated job by job_id. While queued/running returns the status; once finished returns the distilled summary + diff for review.";
-var CONFIGURE_DELEGATION_DESCRIPTION = "Inspect available delegation workers and current routing settings, or update the ordered routing chain and worker model selections. Detection performs local checks only and does not run a worker.";
+var CONFIGURE_DELEGATION_DESCRIPTION = "Inspect delegation worker availability and locally discovered models for each provider (newest first) alongside current routing settings, or update the ordered routing chain and worker model selections. Detection performs local checks only and does not run a worker.";
 function formatDiffSection(diff, diffPath) {
   const diffText = diff ?? "";
   if (diffText.length >= DIFF_INLINE_LIMIT_CHARS) {
@@ -29831,12 +29950,15 @@ function registerDelegateTools(server, store, serverInfo, repoRoot) {
       try {
         const parsed = ConfigureDelegationInputSchema.parse(input);
         if (parsed.action === "detect") {
-          const [providers, currentPolicy] = await Promise.all([
+          const [providers, models, currentPolicy] = await Promise.all([
             detectAuthenticatedProviders(repoRoot),
+            listAllProviderModels(repoRoot),
             loadExistingPolicy(repoRoot)
           ]);
           return textResult(
-            JSON.stringify(buildConfigureDelegationDetectPayload(providers, currentPolicy)),
+            JSON.stringify(
+              buildConfigureDelegationDetectPayload(providers, models, currentPolicy)
+            ),
             false
           );
         }
@@ -29849,8 +29971,8 @@ function registerDelegateTools(server, store, serverInfo, repoRoot) {
 }
 
 // src/routing/quota.ts
-import { mkdir as mkdir3, readFile as readFile7, writeFile as writeFile4 } from "node:fs/promises";
-import { dirname, join as join8 } from "node:path";
+import { mkdir as mkdir3, readFile as readFile8, writeFile as writeFile4 } from "node:fs/promises";
+import { dirname, join as join9 } from "node:path";
 var WINDOW_5H_MS = 5 * 60 * 60 * 1e3;
 var WINDOW_WEEK_MS = 7 * 24 * 60 * 60 * 1e3;
 var attemptSchema = external_exports.object({
@@ -29885,9 +30007,9 @@ var QuotaLedger = class _QuotaLedger {
     this.now = now;
   }
   static async load(repoRoot, now = Date.now) {
-    const filePath = join8(repoRoot, ".delegate", "quota-ledger.json");
+    const filePath = join9(repoRoot, ".delegate", "quota-ledger.json");
     try {
-      const raw = await readFile7(filePath, "utf8");
+      const raw = await readFile8(filePath, "utf8");
       const parsed = persistedLedgerSchema.parse(JSON.parse(raw));
       return new _QuotaLedger(filePath, parsed, now);
     } catch (error2) {
@@ -29969,7 +30091,7 @@ var QuotaLedger = class _QuotaLedger {
 };
 
 // src/server.ts
-var execFileAsync3 = promisify4(execFile5);
+var execFileAsync3 = promisify4(execFile6);
 async function main() {
   const bootedAt = Date.now();
   const repoRoot = process.env.CLAUDE_PROJECT_DIR ?? process.cwd();
