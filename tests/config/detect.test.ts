@@ -56,10 +56,14 @@ describe('provider authentication detection', () => {
     expect(detections.codex).toEqual({ available: true, detail: `binary: ${bundledCodex}` })
     expect(detections.claude.available).toBe(true)
     expect(detections.claude.detail).toContain('Claude Code 1.2.3')
-    expect(detections.claude.detail).toContain('npm run preflight')
+    expect(detections.claude.detail).toContain(
+      'authentication is verified when the first delegated job runs',
+    )
     expect(detections.antigravity.available).toBe(true)
     expect(detections.antigravity.detail).toContain('Antigravity 2.3.4')
-    expect(detections.antigravity.detail).toContain('npm run preflight')
+    expect(detections.antigravity.detail).toContain(
+      'authentication is verified when the first delegated job runs',
+    )
     expect(stdout).not.toHaveBeenCalled()
   })
 
@@ -75,10 +79,10 @@ describe('provider authentication detection', () => {
 
     // Assert
     expect(detection.available).toBe(false)
-    expect(detection.detail).toBe('not authenticated — run: npx codex login')
+    expect(detection.detail).toBe('not authenticated — run: codex login')
     expect(detection.reports).toEqual([
       { status: 'ok', message: `codex binary: ${bundledCodex}` },
-      { status: 'fail', message: 'codex not authenticated — run: npx codex login' },
+      { status: 'fail', message: 'codex not authenticated — run: codex login' },
     ])
   })
 
@@ -93,7 +97,16 @@ describe('provider authentication detection', () => {
 
     // Assert
     expect(codex.available).toBe(false)
-    expect(codex.detail).toBe('CLI not found — run: npm install')
+    expect(codex.detail).toBe(
+      'CLI not found on PATH — install: npm i -g @openai/codex && codex login',
+    )
+    expect(codex.reports).toEqual([
+      {
+        status: 'fail',
+        message:
+          'codex CLI not found on PATH — install: npm i -g @openai/codex && codex login',
+      },
+    ])
     expect(claude.available).toBe(false)
     expect(claude.detail).toBe('CLI not found on PATH — install the Claude Code CLI')
     expect(claude.reports).toEqual([
