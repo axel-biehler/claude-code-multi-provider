@@ -8,10 +8,27 @@ import { listAllProviderModels } from '../src/config/models'
 import type { ModelOption, ProviderModels } from '../src/config/models'
 import { writePolicyFile } from '../src/config/policy-writer'
 import type { PolicyPatch } from '../src/config/policy-writer'
+import {
+  AntigravityReasoningSchema,
+  ClaudeReasoningSchema,
+  CodexReasoningSchema,
+} from '../src/routing/policy'
 import type { Effort, EngineName } from '../src/types'
 
 const PROVIDERS = ['codex', 'claude', 'antigravity'] as const satisfies readonly EngineName[]
 const EFFORT_TIERS = ['light', 'standard', 'heavy'] as const satisfies readonly Effort[]
+
+const REASONING_VALUES: Record<EngineName, readonly string[]> = {
+  codex: CodexReasoningSchema.options,
+  claude: ClaudeReasoningSchema.options,
+  antigravity: AntigravityReasoningSchema.options,
+}
+
+const RECOMMENDED_REASONING: Record<EngineName, Record<Effort, string>> = {
+  codex: { light: 'low', standard: 'medium', heavy: 'xhigh' },
+  claude: { light: 'low', standard: 'medium', heavy: 'max' },
+  antigravity: { light: 'low', standard: 'medium', heavy: 'high' },
+}
 
 function isEngineName(value: string): value is EngineName {
   return value === 'codex' || value === 'claude' || value === 'antigravity'
@@ -38,6 +55,7 @@ export function buildPolicyPatch(
   chain: readonly EngineName[],
   modelAnswers: Partial<Record<EngineName, string>>,
   tierAnswers: Partial<Record<EngineName, Partial<Record<Effort, string>>>> = {},
+  reasoningAnswers: Partial<Record<EngineName, Partial<Record<Effort, string>>>> = {},
 ): PolicyPatch {
   const models: NonNullable<PolicyPatch['models']> = {}
   for (const provider of chain) {
@@ -55,7 +73,22 @@ export function buildPolicyPatch(
     if (provider === 'claude') models.claude = model || 'sonnet'
     else if (model !== '') models[provider] = model
   }
-  return { chain: [...chain], models }
+
+  const reasoning: NonNullable<PolicyPatch['reasoning']> = {}
+  for (const provider of chain) {
+    const answeredTiers: Partial<Record<Effort, string>> = {}
+    for (const tier of EFFORT_TIERS) {
+      const value = reasoningAnswers[provider]?.[tier]?.trim() ?? ''
+      if (value !== '') answeredTiers[tier] = value
+    }
+    if (Object.keys(answeredTiers).length > 0) reasoning[provider] = answeredTiers
+  }
+
+  return {
+    chain: [...chain],
+    models,
+    ...(Object.keys(reasoning).length > 0 ? { reasoning } : {}),
+  }
 }
 
 export function resolveModelAnswer(
@@ -70,6 +103,15 @@ export function resolveModelAnswer(
     throw new Error(`Model number must be between 1 and ${models.length}`)
   }
   return models[choice - 1]!.id
+}
+
+export function resolveReasoningAnswer(answer: string, engine: EngineName): string {
+  const trimmed = answer.trim()
+  if (trimmed === '') return ''
+  if (!REASONING_VALUES[engine].includes(trimmed)) {
+    throw new Error(`Reasoning must be one of: ${REASONING_VALUES[engine].join(', ')}`)
+  }
+  return trimmed
 }
 
 export function formatModelMenu(
@@ -222,7 +264,36 @@ async function main(): Promise<void> {
         tierAnswers[provider] = answers
       }
     }
-    const patch = buildPolicyPatch(chain, modelAnswers, tierAnswers)
+
+    const reasoningAnswers: Partial<
+      Record<EngineName, Partial<Record<Effort, string>>>
+    > = {}
+    const configureReasoning = await readline.question(
+      'Configure per-effort reasoning tiers (light/standard/heavy)? [y/N]: ',
+    )
+    if (['y', 'yes'].includes(configureReasoning.trim().toLowerCase())) {
+      for (const provider of chain) {
+        const recommended = RECOMMENDED_REASONING[provider]
+        console.log(
+          `${provider} reasoning values: ${REASONING_VALUES[provider].join(', ')} ` +
+            `(recommended light=${recommended.light}, standard=${recommended.standard}, heavy=${recommended.heavy})`,
+        )
+        const answers: Partial<Record<Effort, string>> = {}
+        for (const tier of EFFORT_TIERS) {
+          while (true) {
+            const answer = await readline.question(`${provider} ${tier} reasoning [skip]: `)
+            try {
+              answers[tier] = resolveReasoningAnswer(answer, provider)
+              break
+            } catch (error) {
+              console.log(error instanceof Error ? error.message : String(error))
+            }
+          }
+        }
+        reasoningAnswers[provider] = answers
+      }
+    }
+    const patch = buildPolicyPatch(chain, modelAnswers, tierAnswers, reasoningAnswers)
 
     if (await policyExists(repoRoot)) {
       const confirmation = await readline.question(
@@ -246,6 +317,14 @@ async function main(): Promise<void> {
         .map((tier) => `${tier}=${configured[tier]}`)
         .join(', ')
       console.log(`  ${provider} models: ${tiers}`)
+    }
+    for (const provider of chain) {
+      const configuredReasoning = patch.reasoning?.[provider]
+      if (configuredReasoning === undefined || typeof configuredReasoning === 'string') continue
+      const tiers = EFFORT_TIERS.filter((tier) => configuredReasoning[tier] !== undefined)
+        .map((tier) => `${tier}=${configuredReasoning[tier]}`)
+        .join(', ')
+      console.log(`  ${provider} reasoning: ${tiers}`)
     }
     console.log('Run npm run preflight for a live authentication check.')
   } finally {
