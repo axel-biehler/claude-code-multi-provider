@@ -42,7 +42,9 @@ The plugin bundles the MCP server (one self-contained file), the `delegate` and
 project you have open (`$CLAUDE_PROJECT_DIR`) — worktrees, `policy.yaml`, and `.delegate/`
 all live in that repo. Run `/delegate-init` to detect the available providers, choose their
 order and models, and write `policy.yaml` through the bundled tool. Without a policy it uses
-the defaults.
+the defaults. `/delegate-init` drives everything through the bundled tool and never runs npm
+scripts in the project being configured; repo scripts such as `npm run preflight` apply only
+to a clone of this repository.
 
 The worker CLIs are **not** bundled (they're heavy/native), so a plugin user still needs:
 
@@ -94,6 +96,11 @@ run `npm run configure` to detect available providers and interactively choose t
 and models. Its merge-safe writer updates those selections in `policy.yaml` without
 dropping other fields. You can also edit the local, gitignored file by hand (copy
 `policy.example.yaml` to start):
+
+The chain is a priority order: its first entry gets every job, while the rest are automatic
+quota/auth fallbacks. `npm run configure` and `/delegate-init` list the models available on
+this machine — live-listed where the provider CLI supports it and drawn from a curated
+suggestion list otherwise — with the newest proposed first.
 
 - `chain:` — ordered provider fallback: `[codex]`, `[claude]`, `[antigravity]`, or
   `[codex, claude, antigravity]`. Set it
