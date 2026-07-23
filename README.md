@@ -26,7 +26,9 @@ Then open the repo in **Claude Code**. The `delegate` server is auto-registered 
 [.mcp.json](.mcp.json) — confirm with `/mcp`, then call `delegate_task`.
 
 `npm run setup` is idempotent; re-run it any time. On a TTY it runs the interactive
-`npm run configure` flow; in automation it keeps the copy-only setup behavior.
+`npm run configure` flow; in automation it keeps the copy-only setup behavior. The setup
+script is plain Node, so it behaves the same from macOS/Linux shells and Windows
+PowerShell/cmd.
 
 ## Install as a Claude Code plugin
 
@@ -65,6 +67,20 @@ The worker CLIs are **not** bundled (they're heavy/native), so a plugin user sti
 - *(optional)* **A Claude seat** for the fallback worker — `claude setup-token`. The
   chain works on Codex alone; Claude and Antigravity tiers only engage when configured.
 - *(optional)* **Antigravity `agy`** for the third worker; it is opt-in through `policy.yaml`.
+
+## Platform support
+
+- **macOS** — primary target; worktree deps are APFS copy-on-write clones.
+- **Linux** — supported; worktree deps clone via reflink on btrfs/XFS and fall back to a
+  symlink elsewhere.
+- **Windows** — `npm run setup`, `npm run configure`, and the bundled Codex worker are
+  built to run natively (PowerShell/cmd): everything is plain Node, the codex CLI is
+  invoked through Node directly (no `.cmd` shim), the worker env allow-list passes the
+  required Windows variables, worktree deps fall back to a directory junction (no admin
+  rights needed), and the timeout guard tree-kills the worker so a native codex child
+  isn't orphaned. The Claude worker needs the native `claude` installer (`claude.exe` on
+  PATH). Native Windows isn't CI-verified yet — treat it as best-effort; WSL2 remains the
+  most-tested route.
 
 ## Using it
 

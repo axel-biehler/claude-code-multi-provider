@@ -10,7 +10,7 @@ import {
 
 describe('buildCodexArgs', () => {
   const baseOptions = {
-    codexBin: 'codex',
+    codexCli: { command: 'codex', args: [] },
     worktreePath: '/tmp/worktree',
     prompt: 'Implement the requested change',
     paths: {
@@ -268,15 +268,16 @@ describe('buildMcpDisableOverrides', () => {
 describe('resolveCodexConfigOverrides', () => {
   test('appends per-server disables to the blanket override when the listing works', async () => {
     // Arrange
+    const codexCli = { command: '/bin/node', args: ['/repo/codex.js'] }
     const runList = vi
       .fn()
       .mockResolvedValue(JSON.stringify([{ name: 'example-server', enabled: true }]))
 
     // Act
-    const overrides = await resolveCodexConfigOverrides('/bin/codex', runList)
+    const overrides = await resolveCodexConfigOverrides(codexCli, runList)
 
     // Assert
-    expect(runList).toHaveBeenCalledWith('/bin/codex')
+    expect(runList).toHaveBeenCalledWith(codexCli)
     expect(overrides).toEqual([
       ...CODEX_CONFIG_OVERRIDES,
       '-c',
@@ -289,7 +290,7 @@ describe('resolveCodexConfigOverrides', () => {
     const runList = vi.fn().mockRejectedValue(new Error('unsupported subcommand'))
 
     // Act
-    const overrides = await resolveCodexConfigOverrides('/bin/codex', runList)
+    const overrides = await resolveCodexConfigOverrides({ command: 'codex', args: [] }, runList)
 
     // Assert
     expect(overrides).toEqual(CODEX_CONFIG_OVERRIDES)
