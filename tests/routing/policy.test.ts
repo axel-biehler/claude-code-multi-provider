@@ -82,6 +82,59 @@ describe('PolicySchema', () => {
     expect(policy.workers.claude.models).toEqual({ standard: 'claude-standard' })
   })
 
+  test('accepts scalar reasoning settings for every worker', () => {
+    // Arrange
+    const config = {
+      workers: {
+        codex: { reasoning: 'xhigh' },
+        claude: { reasoning: 'max' },
+        antigravity: { reasoning: 'high' },
+      },
+    }
+
+    // Act
+    const policy = PolicySchema.parse(config)
+
+    // Assert
+    expect(policy.workers.codex.reasoning).toBe('xhigh')
+    expect(policy.workers.claude.reasoning).toBe('max')
+    expect(policy.workers.antigravity.reasoning).toBe('high')
+  })
+
+  test('accepts per-tier reasoning settings for every worker', () => {
+    // Arrange
+    const config = {
+      workers: {
+        codex: { reasoning: { light: 'minimal', heavy: 'xhigh' } },
+        claude: { reasoning: { standard: 'high', heavy: 'max' } },
+        antigravity: { reasoning: { light: 'low', heavy: 'high' } },
+      },
+    }
+
+    // Act
+    const policy = PolicySchema.parse(config)
+
+    // Assert
+    expect(policy.workers.codex.reasoning).toEqual({ light: 'minimal', heavy: 'xhigh' })
+    expect(policy.workers.claude.reasoning).toEqual({ standard: 'high', heavy: 'max' })
+    expect(policy.workers.antigravity.reasoning).toEqual({ light: 'low', heavy: 'high' })
+  })
+
+  test.each([
+    ['codex', 'max'],
+    ['claude', 'minimal'],
+    ['antigravity', 'xhigh'],
+  ] as const)('rejects reasoning value %s does not support', (engine, reasoning) => {
+    // Arrange
+    const config = { workers: { [engine]: { reasoning } } }
+
+    // Act
+    const result = PolicySchema.safeParse(config)
+
+    // Assert
+    expect(result.success).toBe(false)
+  })
+
   test('keeps scalar model defaults when per-tier models are omitted', () => {
     // Arrange
     const config = { workers: { codex: {}, claude: {}, antigravity: {} } }
@@ -96,6 +149,16 @@ describe('PolicySchema', () => {
     expect(policy.workers.antigravity.model).toBeUndefined()
     expect(policy.workers.claude.models).toBeUndefined()
     expect(policy.workers.claude.model).toBe('sonnet')
+  })
+
+  test('keeps reasoning absent when parsing DEFAULT_POLICY', () => {
+    // Act
+    const policy = PolicySchema.parse(DEFAULT_POLICY)
+
+    // Assert
+    expect(policy.workers.codex.reasoning).toBeUndefined()
+    expect(policy.workers.claude.reasoning).toBeUndefined()
+    expect(policy.workers.antigravity.reasoning).toBeUndefined()
   })
 
   test('the committed policy.example.yaml validates and matches the defaults exactly', async () => {

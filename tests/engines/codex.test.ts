@@ -47,6 +47,27 @@ describe('buildCodexArgs', () => {
     // Assert
     expect(args.some((arg) => arg.startsWith('--model'))).toBe(false)
   })
+
+  test('includes reasoning as an explicitly quoted TOML config pair', () => {
+    // Arrange
+    const options = { ...baseOptions, reasoning: 'high' }
+
+    // Act
+    const args = buildCodexArgs(options)
+
+    // Assert
+    const configFlagIndex = args.indexOf('model_reasoning_effort="high"')
+    expect(configFlagIndex).toBeGreaterThanOrEqual(1)
+    expect(args[configFlagIndex - 1]).toBe('-c')
+  })
+
+  test('omits the reasoning config entirely when reasoning is undefined', () => {
+    // Act
+    const args = buildCodexArgs(baseOptions)
+
+    // Assert
+    expect(args.some((arg) => arg.startsWith('model_reasoning_effort='))).toBe(false)
+  })
 })
 
 describe('CODEX_CONFIG_OVERRIDES', () => {
@@ -296,4 +317,3 @@ describe('resolveCodexConfigOverrides', () => {
     expect(overrides).toEqual(CODEX_CONFIG_OVERRIDES)
   })
 })
-
