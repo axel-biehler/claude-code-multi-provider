@@ -12,6 +12,16 @@ async function writeExecutable(path: string, body: string): Promise<void> {
   await chmod(path, 0o755)
 }
 
+// The bundled codex is invoked as `process.execPath <JS entry>` — the fixture is a
+// plain Node script, no shell involved.
+async function writeBundledCodex(repoRoot: string, body: string): Promise<string> {
+  const entryDirectory = join(repoRoot, 'node_modules', '@openai', 'codex', 'bin')
+  await mkdir(entryDirectory, { recursive: true })
+  const entryPath = join(entryDirectory, 'codex.js')
+  await writeFile(entryPath, `${body}\n`, 'utf8')
+  return entryPath
+}
+
 describe('provider authentication detection', () => {
   let repoRoot: string
   let pathDirectory: string
@@ -34,10 +44,10 @@ describe('provider authentication detection', () => {
 
   test('returns both authenticated providers without writing to stdout', async () => {
     // Arrange
-    const bundledDirectory = join(repoRoot, 'node_modules', '.bin')
-    const bundledCodex = join(bundledDirectory, 'codex')
-    await mkdir(bundledDirectory, { recursive: true })
-    await writeExecutable(bundledCodex, '[ "$1 $2" = "login status" ]')
+    const bundledCodex = await writeBundledCodex(
+      repoRoot,
+      'process.exit(process.argv[2] === "login" && process.argv[3] === "status" ? 0 : 1)',
+    )
     await writeExecutable(
       join(pathDirectory, 'claude'),
       '[ "$1" = "--version" ] && printf "Claude Code 1.2.3\\n"',
@@ -53,7 +63,10 @@ describe('provider authentication detection', () => {
 
     // Assert
     expect(Object.keys(detections).sort()).toEqual(['antigravity', 'claude', 'codex'])
-    expect(detections.codex).toEqual({ available: true, detail: `binary: ${bundledCodex}` })
+    expect(detections.codex).toEqual({
+      available: true,
+      detail: `binary: ${process.execPath} ${bundledCodex}`,
+    })
     expect(detections.claude.available).toBe(true)
     expect(detections.claude.detail).toContain('Claude Code 1.2.3')
     expect(detections.claude.detail).toContain(
@@ -69,10 +82,7 @@ describe('provider authentication detection', () => {
 
   test('keeps the preflight report messages for an unauthenticated bundled codex', async () => {
     // Arrange
-    const bundledDirectory = join(repoRoot, 'node_modules', '.bin')
-    const bundledCodex = join(bundledDirectory, 'codex')
-    await mkdir(bundledDirectory, { recursive: true })
-    await writeExecutable(bundledCodex, 'exit 1')
+    const bundledCodex = await writeBundledCodex(repoRoot, 'process.exit(1)')
 
     // Act
     const detection = await detectAuthenticatedProvider('codex', repoRoot)
@@ -81,7 +91,7 @@ describe('provider authentication detection', () => {
     expect(detection.available).toBe(false)
     expect(detection.detail).toBe('not authenticated — run: codex login')
     expect(detection.reports).toEqual([
-      { status: 'ok', message: `codex binary: ${bundledCodex}` },
+      { status: 'ok', message: `codex binary: ${process.execPath} ${bundledCodex}` },
       { status: 'fail', message: 'codex not authenticated — run: codex login' },
     ])
   })

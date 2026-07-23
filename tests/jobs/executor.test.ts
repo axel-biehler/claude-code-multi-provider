@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { buildDefaultWorkerRunner, executeJob, neutralizeRunnerErrors } from '../../src/jobs/executor'
+import { buildDefaultWorkerRunner, cloneCommandFor, executeJob, neutralizeRunnerErrors } from '../../src/jobs/executor'
 import type { WorkerRunner } from '../../src/jobs/executor'
 import { buildJobPaths } from '../../src/jobs/paths'
 import { PolicySchema } from '../../src/routing/policy'
@@ -553,5 +553,24 @@ describe('neutralizeRunnerErrors', () => {
 
     // Assert
     expect(result).toEqual(outcome)
+  })
+})
+
+describe('cloneCommandFor', () => {
+  test('uses APFS clonefile on macOS and reflink on Linux', () => {
+    // Act + Assert
+    expect(cloneCommandFor('darwin', '/repo/node_modules', '/wt/node_modules')).toEqual({
+      command: 'cp',
+      args: ['-c', '-R', '/repo/node_modules', '/wt/node_modules'],
+    })
+    expect(cloneCommandFor('linux', '/repo/node_modules', '/wt/node_modules')).toEqual({
+      command: 'cp',
+      args: ['-R', '--reflink=always', '/repo/node_modules', '/wt/node_modules'],
+    })
+  })
+
+  test('returns null on Windows so provisioning goes straight to the junction symlink', () => {
+    // Act + Assert
+    expect(cloneCommandFor('win32', '/repo/node_modules', '/wt/node_modules')).toBeNull()
   })
 })

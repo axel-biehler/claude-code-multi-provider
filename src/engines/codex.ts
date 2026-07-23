@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises'
 import { performance } from 'node:perf_hooks'
 import { promisify } from 'node:util'
 import type { FailureKind, JobPaths, WorkerOutcome } from '../types'
+import { cliInvocation } from './shared/cli-command'
+import type { CliCommand } from './shared/cli-command'
 import { classifyFailureText, parseRetryAt } from './shared/failure-signals'
 import { armTimeoutGuard, drainToFile, unmaskTimedOutExit } from './shared/worker-process'
 import { buildWorkerEnv } from './shared/worker-env'
@@ -84,26 +86,25 @@ export function buildMcpDisableOverrides(listJson: string): readonly string[] {
 // `codex mcp list --json` is offline and fast (~100ms); a failure (older CLI, parse
 // drift) must never block the job — fall back to the legacy blanket override alone.
 export async function resolveCodexConfigOverrides(
-  codexBin: string,
-  runList: (bin: string) => Promise<string> = defaultRunMcpList,
+  codexCli: CliCommand,
+  runList: (cli: CliCommand) => Promise<string> = defaultRunMcpList,
 ): Promise<readonly string[]> {
   try {
-    const listJson = await runList(codexBin)
+    const listJson = await runList(codexCli)
     return [...CODEX_CONFIG_OVERRIDES, ...buildMcpDisableOverrides(listJson)]
   } catch {
     return CODEX_CONFIG_OVERRIDES
   }
 }
 
-async function defaultRunMcpList(codexBin: string): Promise<string> {
-  const { stdout } = await promisify(execFile)(codexBin, ['mcp', 'list', '--json'], {
-    timeout: 15_000,
-  })
+async function defaultRunMcpList(codexCli: CliCommand): Promise<string> {
+  const { command, args } = cliInvocation(codexCli, ['mcp', 'list', '--json'])
+  const { stdout } = await promisify(execFile)(command, args, { timeout: 15_000 })
   return stdout
 }
 
 export interface RunCodexOptions {
-  readonly codexBin: string
+  readonly codexCli: CliCommand
   readonly worktreePath: string
   readonly prompt: string
   readonly paths: JobPaths
@@ -143,7 +144,8 @@ export function runCodex(options: RunCodexOptions): Promise<RunCodexResult> {
 
   return new Promise<RunCodexResult>((resolve, reject) => {
     const startedAt = performance.now()
-    const child = spawn(options.codexBin, buildCodexArgs(options), {
+    const invocation = cliInvocation(options.codexCli, buildCodexArgs(options))
+    const child = spawn(invocation.command, invocation.args, {
       // Strict allow-list env — a delegated worker must not inherit the MCP server's
       // secrets or parent-session vars (see shared/worker-env).
       env: buildWorkerEnv(),

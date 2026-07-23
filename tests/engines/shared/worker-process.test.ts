@@ -19,16 +19,22 @@ describe('unmaskTimedOutExit', () => {
 })
 
 describe('armTimeoutGuard', () => {
-  function stubChild(): { child: ChildProcessByStdio<null, Readable, Readable>; kill: ReturnType<typeof vi.fn> } {
+  function stubChild(pid?: number): {
+    child: ChildProcessByStdio<null, Readable, Readable>
+    kill: ReturnType<typeof vi.fn>
+  } {
     const kill = vi.fn()
-    return { child: { kill } as unknown as ChildProcessByStdio<null, Readable, Readable>, kill }
+    return {
+      child: { kill, pid } as unknown as ChildProcessByStdio<null, Readable, Readable>,
+      kill,
+    }
   }
 
   test('reports a fired timeout and escalates SIGTERM to SIGKILL', () => {
     // Arrange
     vi.useFakeTimers()
     const { child, kill } = stubChild()
-    const guard = armTimeoutGuard(child, 1_000)
+    const guard = armTimeoutGuard(child, 1_000, { platform: 'linux' })
 
     // Act
     vi.advanceTimersByTime(1_000)
@@ -41,6 +47,24 @@ describe('armTimeoutGuard', () => {
     expect(firedAfterDeadline).toBe(true)
     expect(kill).toHaveBeenNthCalledWith(1, 'SIGTERM')
     expect(kill).toHaveBeenNthCalledWith(2, 'SIGKILL')
+  })
+
+  test('on win32 kills the whole process tree by pid instead of signaling the wrapper', () => {
+    // Arrange — Windows ignores kill() signals and would orphan codex's native grandchild.
+    vi.useFakeTimers()
+    const { child, kill } = stubChild(4321)
+    const treeKill = vi.fn()
+    const guard = armTimeoutGuard(child, 1_000, { platform: 'win32', treeKill })
+
+    // Act
+    vi.advanceTimersByTime(1_000)
+    vi.advanceTimersByTime(10_000)
+    guard.disarm()
+    vi.useRealTimers()
+
+    // Assert
+    expect(kill).not.toHaveBeenCalled()
+    expect(treeKill).toHaveBeenCalledWith(4321)
   })
 
   test('disarming before the deadline prevents any kill and reports no timeout', () => {

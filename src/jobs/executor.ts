@@ -7,6 +7,8 @@ import { promisify } from 'node:util'
 import { runAntigravity } from '../engines/antigravity'
 import { runClaude } from '../engines/claude'
 import { resolveCodexConfigOverrides, runCodex } from '../engines/codex'
+import { resolveCodexCli } from '../engines/shared/cli-command'
+import type { CliCommand } from '../engines/shared/cli-command'
 import { buildPrompt } from '../engines/shared/prompt'
 import { collectDiff, createWorktree, removeWorktree } from '../git/worktree'
 import type { Policy } from '../routing/policy'
@@ -58,37 +60,46 @@ export interface ExecutorDeps {
   readonly runWorker?: WorkerRunner
 }
 
+// Copy-on-write clone command per platform; null = no clone tool, go straight to the
+// symlink fallback. APFS clonefile on macOS; reflink on Linux (btrfs/XFS — ext4 fails
+// fast and falls back). Windows has no `cp` at all.
+export function cloneCommandFor(
+  platform: NodeJS.Platform,
+  source: string,
+  target: string,
+): CliCommand | null {
+  if (platform === 'darwin') return { command: 'cp', args: ['-c', '-R', source, target] }
+  if (platform === 'linux') {
+    return { command: 'cp', args: ['-R', '--reflink=always', source, target] }
+  }
+  return null
+}
+
 // Best-effort only: lets the worker run tests/tooling that expect installed deps.
-// Clone-first (APFS clonefile: near-instant, copy-on-write) closes limitation M2 — through
-// the old symlink a workspace-write worker could edit SHARED deps with nothing in the diff —
+// Clone-first (near-instant, copy-on-write) closes limitation M2 — through the old
+// symlink a workspace-write worker could edit SHARED deps with nothing in the diff —
 // and the last live run showed codex's sandbox treats the symlink target as read-only,
 // forcing workarounds when a tool writes inside node_modules. Symlink stays as the
-// non-APFS fallback; absence of deps never fails the job.
+// no-clone fallback ('junction' so Windows needs no admin rights; the type is ignored
+// on POSIX); absence of deps never fails the job.
 async function provisionNodeModules(repoRoot: string, worktreePath: string): Promise<void> {
   const source = join(repoRoot, 'node_modules')
   const target = join(worktreePath, 'node_modules')
-  try {
-    await execFileAsync('cp', ['-c', '-R', source, target])
-    console.error('[delegate] job deps: cloned')
-    return
-  } catch {
-    // Non-APFS volume or no node_modules at all — fall through to the legacy symlink.
+  const clone = cloneCommandFor(process.platform, source, target)
+  if (clone !== null) {
+    try {
+      await execFileAsync(clone.command, [...clone.args])
+      console.error('[delegate] job deps: cloned')
+      return
+    } catch {
+      // Non-CoW volume or no node_modules at all — fall through to the legacy symlink.
+    }
   }
   try {
-    await symlink(source, target)
+    await symlink(source, target, 'junction')
     console.error('[delegate] job deps: symlinked')
   } catch {
     console.error('[delegate] job deps: absent')
-  }
-}
-
-async function resolveCodexBin(repoRoot: string): Promise<string> {
-  const bundledPath = join(repoRoot, 'node_modules', '.bin', 'codex')
-  try {
-    await access(bundledPath)
-    return bundledPath
-  } catch {
-    return 'codex'
   }
 }
 
@@ -181,11 +192,11 @@ export function buildDefaultWorkerRunner(): WorkerRunner {
         model: req.model,
       })
     }
-    const codexBin = await resolveCodexBin(req.repoRoot)
-    const configOverrides = await resolveCodexConfigOverrides(codexBin)
+    const codexCli = await resolveCodexCli(req.repoRoot)
+    const configOverrides = await resolveCodexConfigOverrides(codexCli)
     const worker = req.policy.workers.codex
     return runCodex({
-      codexBin,
+      codexCli,
       configOverrides,
       worktreePath: req.worktreePath,
       prompt: req.prompt,

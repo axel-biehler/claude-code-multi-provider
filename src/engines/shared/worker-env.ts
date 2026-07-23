@@ -24,14 +24,53 @@ const ALLOWED_KEYS: ReadonlySet<string> = new Set([
 // Locale family (LC_ALL, LC_CTYPE, …) — allow the whole prefix.
 const ALLOWED_PREFIXES: readonly string[] = ['LC_']
 
-function isAllowed(key: string): boolean {
+// Windows OS plumbing (SystemRoot, ComSpec, PATHEXT, …) plus the Windows homes of
+// on-disk CLI auth (USERPROFILE, APPDATA, LOCALAPPDATA). Names are stored uppercase
+// and matched case-insensitively on win32 only — Windows env names are case-insensitive
+// and real environments mix casings (`Path`, `SystemRoot`, `windir`).
+const WINDOWS_ALLOWED_KEYS: ReadonlySet<string> = new Set([
+  'ALLUSERSPROFILE',
+  'APPDATA',
+  'COMSPEC',
+  'HOMEDRIVE',
+  'HOMEPATH',
+  'LOCALAPPDATA',
+  'NUMBER_OF_PROCESSORS',
+  'OS',
+  'PATHEXT',
+  'PROCESSOR_ARCHITECTURE',
+  'PROGRAMDATA',
+  'PROGRAMFILES',
+  'PROGRAMFILES(X86)',
+  'PROGRAMW6432',
+  'SYSTEMDRIVE',
+  'SYSTEMROOT',
+  'TEMP',
+  'TMP',
+  'USERDOMAIN',
+  'USERNAME',
+  'USERPROFILE',
+  'WINDIR',
+])
+
+function matchesAllowList(key: string): boolean {
   return ALLOWED_KEYS.has(key) || ALLOWED_PREFIXES.some((prefix) => key.startsWith(prefix))
 }
 
+function isAllowed(key: string, platform: NodeJS.Platform): boolean {
+  if (matchesAllowList(key)) return true
+  if (platform !== 'win32') return false
+  const upper = key.toUpperCase()
+  return matchesAllowList(upper) || WINDOWS_ALLOWED_KEYS.has(upper)
+}
+
 // Fully REPLACES (never merges) the child env — pass the result as spawn/execFile `env`.
-export function buildWorkerEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+export function buildWorkerEnv(
+  source: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): NodeJS.ProcessEnv {
   const entries = Object.entries(source).filter(
-    (entry): entry is [string, string] => entry[1] !== undefined && isAllowed(entry[0]),
+    (entry): entry is [string, string] => entry[1] !== undefined && isAllowed(entry[0], platform),
   )
   return Object.fromEntries(entries)
 }
