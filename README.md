@@ -93,14 +93,14 @@ with an iterative review loop, use the `delegation-manager` subagent.
 
 Delegation is provider-neutral — the tools never expose which engine ran. From a clone,
 run `npm run configure` to detect available providers and interactively choose their order
-and models. Its merge-safe writer updates those selections in `policy.yaml` without
-dropping other fields. You can also edit the local, gitignored file by hand (copy
-`policy.example.yaml` to start):
+and models. The chain is a priority order: its first entry gets every job, while the rest
+are automatic quota/auth fallbacks. `npm run configure` and `/delegate-init` list the models
+available on this machine — live-listed where the provider CLI supports it and drawn from a
+curated suggestion list otherwise — with the newest proposed first.
 
-The chain is a priority order: its first entry gets every job, while the rest are automatic
-quota/auth fallbacks. `npm run configure` and `/delegate-init` list the models available on
-this machine — live-listed where the provider CLI supports it and drawn from a curated
-suggestion list otherwise — with the newest proposed first.
+The merge-safe writer updates those selections in `policy.yaml` without dropping other
+fields. You can also edit the local, gitignored file by hand (copy `policy.example.yaml`
+to start):
 
 - `chain:` — ordered provider fallback: `[codex]`, `[claude]`, `[antigravity]`, or
   `[codex, claude, antigravity]`. Set it
