@@ -28441,10 +28441,10 @@ var StdioServerTransport = class {
 
 // src/jobs/executor.ts
 import { execFile as execFile3 } from "node:child_process";
-import { access as access2, mkdir, readFile as readFile4, symlink, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { access as access2, mkdir, readFile as readFile5, symlink, writeFile } from "node:fs/promises";
+import { homedir as homedir2 } from "node:os";
 import { join as join4 } from "node:path";
-import { performance as performance4 } from "node:perf_hooks";
+import { performance as performance5 } from "node:perf_hooks";
 import { promisify as promisify3 } from "node:util";
 
 // src/engines/antigravity.ts
@@ -28809,6 +28809,7 @@ import { promisify } from "node:util";
 
 // src/engines/shared/cli-command.ts
 import { access } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 function cliInvocation(cli, extraArgs) {
   return { command: cli.command, args: [...cli.args, ...extraArgs] };
@@ -28824,6 +28825,15 @@ async function resolveCodexCli(repoRoot) {
     return { command: process.execPath, args: [jsEntry] };
   } catch {
     return { command: "codex", args: [] };
+  }
+}
+async function resolveKimiBin() {
+  const localPath = join(homedir(), ".kimi-code", "bin", "kimi");
+  try {
+    await access(localPath);
+    return localPath;
+  } catch {
+    return "kimi";
   }
 }
 
@@ -28968,6 +28978,111 @@ async function resolveLastMessage(paths) {
   }
 }
 
+// src/engines/kimi.ts
+import { spawn as spawn5 } from "node:child_process";
+import { readFile as readFile4 } from "node:fs/promises";
+import { performance as performance4 } from "node:perf_hooks";
+var DEFAULT_TIMEOUT_MS4 = 6e5;
+var KIMI_AUTH_PATTERN = /no model configured|\/login|sign in/i;
+function extractTextContent(content) {
+  const text = typeof content === "string" ? content : Array.isArray(content) ? content.filter(
+    (part) => typeof part === "object" && part !== null && part.type === "text" && typeof part.text === "string"
+  ).map((part) => part.text).join("") : "";
+  const trimmed = text.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+function parseKimiStreamJson(raw) {
+  return raw.split(/\r?\n/).reduce(
+    (result, line) => {
+      try {
+        const parsed = JSON.parse(line);
+        if (typeof parsed !== "object" || parsed === null) return result;
+        const message = parsed;
+        if (message.role !== "assistant") return result;
+        const text = extractTextContent(message.content);
+        return text === null ? result : { lastMessage: text };
+      } catch {
+        return result;
+      }
+    },
+    { lastMessage: null }
+  );
+}
+function classifyKimiFailure(input) {
+  if (input.exitCode === 0) return void 0;
+  const text = `${input.streamText}
+${input.stderrText}`;
+  const failureKind = classifyFailureText(text);
+  if (failureKind !== "other") return failureKind;
+  if (KIMI_AUTH_PATTERN.test(text)) return "auth";
+  if (input.exitCode === 75) return "quota";
+  return "other";
+}
+function buildKimiArgs(options) {
+  return [
+    "-p",
+    options.prompt,
+    // kimi resolves its workspace from --add-dir, NOT cwd: pinning it here keeps the
+    // worker's edits inside the worktree sandbox and visible to collectDiff.
+    "--add-dir",
+    options.worktreePath,
+    "--output-format",
+    "stream-json",
+    // Prompt mode needs no permission flag; Kimi rejects --yolo and --auto with -p.
+    ...options.model === void 0 ? [] : [`--model=${options.model}`]
+  ];
+}
+function runKimi(options) {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS4;
+  return new Promise((resolve, reject) => {
+    const startedAt = performance4.now();
+    const child = spawn5(options.kimiBin ?? "kimi", buildKimiArgs(options), {
+      cwd: options.worktreePath,
+      env: buildWorkerEnv(),
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    const stdoutDone = drainToFile(child.stdout, options.paths.eventsFile);
+    const stderrDone = drainToFile(child.stderr, options.paths.stderrFile);
+    const streamsSettled = () => Promise.allSettled([stdoutDone, stderrDone]);
+    const guard = armTimeoutGuard(child, timeoutMs);
+    child.on("error", (error2) => {
+      guard.disarm();
+      void streamsSettled().then(() => reject(error2));
+    });
+    child.on("close", (code) => {
+      guard.disarm();
+      if (guard.didTimeout()) {
+        console.error(
+          `[delegate] worker exceeded ${timeoutMs}ms and was terminated \u2014 treating exit as failure`
+        );
+      }
+      void streamsSettled().then(
+        () => Promise.all([
+          readFile4(options.paths.eventsFile, "utf8").catch(() => ""),
+          readFile4(options.paths.stderrFile, "utf8").catch(() => "")
+        ])
+      ).then(([raw, stderrText]) => {
+        const exitCode = unmaskTimedOutExit(code ?? -1, guard.didTimeout());
+        const failureKind = classifyKimiFailure({
+          exitCode,
+          streamText: raw,
+          stderrText
+        });
+        const text = `${raw}
+${stderrText}`;
+        const retryAtMs = failureKind === "quota" ? parseRetryAt(text, Date.now()) : void 0;
+        resolve({
+          exitCode,
+          lastMessage: parseKimiStreamJson(raw).lastMessage,
+          durationMs: performance4.now() - startedAt,
+          failureKind,
+          ...retryAtMs === void 0 ? {} : { retryAtMs }
+        });
+      });
+    });
+  });
+}
+
 // src/engines/shared/prompt.ts
 var RULES_TEXT = "work only inside this repository checkout; do NOT commit \u2014 leave all changes uncommitted in the working tree; add or update tests covering your change when a test setup exists; keep changes minimal and focused on the objective.";
 var PREVIOUS_ATTEMPT_TEXT = "The working tree already contains the previous attempt as uncommitted changes. Revise that work according to the feedback \u2014 do not start from scratch and do not blindly rewrite unrelated parts.";
@@ -29045,7 +29160,9 @@ function resolveWorkerModel(policy, engine, effort) {
   return worker.models?.[tier] ?? worker.model;
 }
 function resolveWorkerReasoning(policy, engine, effort) {
-  const reasoning = policy.workers[engine].reasoning;
+  const worker = policy.workers[engine];
+  if (!("reasoning" in worker)) return void 0;
+  const reasoning = worker.reasoning;
   if (typeof reasoning === "string") return reasoning;
   return reasoning?.[effort ?? "standard"];
 }
@@ -29108,7 +29225,7 @@ async function provisionNodeModules(repoRoot, worktreePath) {
   }
 }
 async function resolveAntigravityBin() {
-  const localPath = join4(homedir(), ".local", "bin", "agy");
+  const localPath = join4(homedir2(), ".local", "bin", "agy");
   try {
     await access2(localPath);
     return localPath;
@@ -29180,6 +29297,16 @@ function buildDefaultWorkerRunner() {
         reasoning: req.reasoning
       });
     }
+    if (req.engine === "kimi") {
+      return runKimi({
+        kimiBin: await resolveKimiBin(),
+        worktreePath: req.worktreePath,
+        prompt: req.prompt,
+        paths: req.paths,
+        timeoutMs: req.policy.workers.kimi.timeoutMs,
+        model: req.model
+      });
+    }
     const codexCli = await resolveCodexCli(req.repoRoot);
     const configOverrides = await resolveCodexConfigOverrides(codexCli);
     const worker = req.policy.workers.codex;
@@ -29209,7 +29336,7 @@ async function runEngineChain(deps, runWorker, jobId, prompt, paths, revision, e
       worktree = await createWorktreeSerialized(deps.repoRoot, jobId);
       await provisionNodeModules(deps.repoRoot, worktree.path);
       if (revision !== void 0) {
-        const parentDiff = await readFile4(revision.parentDiffPath, "utf8");
+        const parentDiff = await readFile5(revision.parentDiffPath, "utf8");
         if (parentDiff.trim().length > 0) {
           try {
             await execFileAsync2(
@@ -29264,7 +29391,7 @@ async function runEngineChain(deps, runWorker, jobId, prompt, paths, revision, e
   }
 }
 async function executeJob(deps, jobId, task, revision) {
-  const startedAt = performance4.now();
+  const startedAt = performance5.now();
   const runWorker = deps.runWorker ?? buildDefaultWorkerRunner();
   const paths = buildJobPaths(deps.repoRoot, jobId);
   await mkdir(paths.jobDir, { recursive: true });
@@ -29296,7 +29423,7 @@ async function executeJob(deps, jobId, task, revision) {
       diffPath: paths.diffFile,
       diff,
       exitCode: outcome.exitCode,
-      durationMs: performance4.now() - startedAt,
+      durationMs: performance5.now() - startedAt,
       engine
     };
   } catch (error2) {
@@ -29538,28 +29665,50 @@ async function detectAntigravity() {
     reports: [{ status: "ok", message: `antigravity binary: ${version2}` }]
   };
 }
+async function detectKimi() {
+  const result = await run(await resolveKimiBin(), ["--version"]);
+  const missingDetail = "kimi CLI not found \u2014 install Kimi Code CLI (https://code.kimi.com) and run: kimi login";
+  if (result.spawnErrorCode !== void 0 || result.exitCode !== 0) {
+    return {
+      engine: "kimi",
+      available: false,
+      detail: missingDetail,
+      reports: [{ status: "fail", message: missingDetail }]
+    };
+  }
+  const version2 = firstLine(result.stdout);
+  return {
+    engine: "kimi",
+    available: true,
+    detail: `binary: ${version2}; authentication is verified when the first delegated job runs`,
+    reports: [{ status: "ok", message: `kimi binary: ${version2}` }]
+  };
+}
 function detectAuthenticatedProvider(engine, repoRoot) {
   if (engine === "codex") return detectCodex(repoRoot);
   if (engine === "antigravity") return detectAntigravity();
+  if (engine === "kimi") return detectKimi();
   return detectClaude();
 }
 async function detectAuthenticatedProviders(repoRoot) {
-  const [codex, claude, antigravity] = await Promise.all([
+  const [codex, claude, antigravity, kimi] = await Promise.all([
     detectAuthenticatedProvider("codex", repoRoot),
     detectAuthenticatedProvider("claude", repoRoot),
-    detectAuthenticatedProvider("antigravity", repoRoot)
+    detectAuthenticatedProvider("antigravity", repoRoot),
+    detectAuthenticatedProvider("kimi", repoRoot)
   ]);
   return {
     codex: { available: codex.available, detail: codex.detail },
     claude: { available: claude.available, detail: claude.detail },
-    antigravity: { available: antigravity.available, detail: antigravity.detail }
+    antigravity: { available: antigravity.available, detail: antigravity.detail },
+    kimi: { available: kimi.available, detail: kimi.detail }
   };
 }
 
 // src/config/models.ts
 import { execFile as execFile5 } from "node:child_process";
-import { readFile as readFile5 } from "node:fs/promises";
-import { homedir as homedir2 } from "node:os";
+import { readFile as readFile6 } from "node:fs/promises";
+import { homedir as homedir3 } from "node:os";
 import { join as join5 } from "node:path";
 var EXEC_MAX_BUFFER_BYTES2 = 16 * 1024 * 1024;
 var ANTIGRAVITY_CATALOG = [
@@ -29578,6 +29727,9 @@ function antigravityFallback() {
   return { models: ANTIGRAVITY_CATALOG, source: "catalog" };
 }
 function codexFallback() {
+  return { models: [], source: "catalog" };
+}
+function kimiFallback() {
   return { models: [], source: "catalog" };
 }
 function run2(command, args) {
@@ -29616,6 +29768,14 @@ function parseCodexConfigModel(toml) {
   }
   return void 0;
 }
+function parseKimiConfigModel(toml) {
+  for (const line of toml.split(/\r?\n/)) {
+    if (/^\s*\[/.test(line)) return void 0;
+    const match = /^\s*default_model\s*=\s*"([^"]+)"\s*(?:#.*)?$/.exec(line);
+    if (match !== null) return match[1];
+  }
+  return void 0;
+}
 async function listAntigravityModels() {
   const result = await run2("agy", ["models"]);
   if (result.exitCode !== 0) return antigravityFallback();
@@ -29624,12 +29784,27 @@ async function listAntigravityModels() {
 async function listCodexModels() {
   let config2;
   try {
-    config2 = await readFile5(join5(homedir2(), ".codex", "config.toml"), "utf8");
+    config2 = await readFile6(join5(homedir3(), ".codex", "config.toml"), "utf8");
   } catch {
     return codexFallback();
   }
   const model = parseCodexConfigModel(config2);
   if (model === void 0) return codexFallback();
+  return {
+    models: [{ id: model, recommended: true }],
+    source: "catalog",
+    defaultModel: model
+  };
+}
+async function listKimiModels() {
+  let config2;
+  try {
+    config2 = await readFile6(join5(homedir3(), ".kimi-code", "config.toml"), "utf8");
+  } catch {
+    return kimiFallback();
+  }
+  const model = parseKimiConfigModel(config2);
+  if (model === void 0) return kimiFallback();
   return {
     models: [{ id: model, recommended: true }],
     source: "catalog",
@@ -29646,32 +29821,40 @@ async function listClaudeModels() {
 function listProviderModels(engine, repoRoot) {
   if (engine === "antigravity") return listAntigravityModels();
   if (engine === "codex") return listCodexModels();
+  if (engine === "kimi") return listKimiModels();
   return listClaudeModels();
 }
 async function listAllProviderModels(repoRoot) {
-  const [codex, claude, antigravity] = await Promise.all([
+  const [codex, claude, antigravity, kimi] = await Promise.all([
     listProviderModels("codex", repoRoot).catch(codexFallback),
     listProviderModels("claude", repoRoot).catch(listClaudeModels),
-    listProviderModels("antigravity", repoRoot).catch(antigravityFallback)
+    listProviderModels("antigravity", repoRoot).catch(antigravityFallback),
+    listProviderModels("kimi", repoRoot).catch(kimiFallback)
   ]);
-  return { codex, claude, antigravity };
+  return { codex, claude, antigravity, kimi };
 }
 
 // src/config/policy-writer.ts
 var import_yaml2 = __toESM(require_dist2(), 1);
-import { readFile as readFile7, writeFile as writeFile3 } from "node:fs/promises";
+import { readFile as readFile8, writeFile as writeFile3 } from "node:fs/promises";
 import { join as join7 } from "node:path";
 
 // src/routing/policy.ts
 var import_yaml = __toESM(require_dist2(), 1);
-import { readFile as readFile6 } from "node:fs/promises";
+import { readFile as readFile7 } from "node:fs/promises";
 import { join as join6 } from "node:path";
 var POLICY_FILE_NAME = "policy.yaml";
-var EngineNameSchema = external_exports.enum(["codex", "claude", "antigravity"]);
+var EngineNameSchema = external_exports.enum(["codex", "claude", "antigravity", "kimi"]);
 var EffortSchema = external_exports.enum(["light", "standard", "heavy"]);
 var CodexReasoningSchema = external_exports.enum(["minimal", "low", "medium", "high", "xhigh"]);
 var ClaudeReasoningSchema = external_exports.enum(["low", "medium", "high", "xhigh", "max"]);
 var AntigravityReasoningSchema = external_exports.enum(["low", "medium", "high"]);
+var ReasoningSchemaByEngine = {
+  codex: CodexReasoningSchema,
+  claude: ClaudeReasoningSchema,
+  antigravity: AntigravityReasoningSchema,
+  kimi: null
+};
 var ModelIdSchema = external_exports.string().min(1).refine((value) => !value.startsWith("-"), { message: 'model id must not start with "-"' });
 var QuotaConfigSchema = external_exports.object({
   maxJobsPer5h: external_exports.number().int().min(1).default(10),
@@ -29711,12 +29894,19 @@ var PolicySchema = external_exports.object({
         external_exports.record(EffortSchema, AntigravityReasoningSchema)
       ]).optional(),
       timeoutMs: external_exports.number().int().positive().default(6e5)
+    }).default({}),
+    kimi: external_exports.object({
+      model: ModelIdSchema.optional(),
+      models: external_exports.record(EffortSchema, ModelIdSchema).optional(),
+      // The Kimi CLI has no reasoning/effort flag; effort tiers use the models map only.
+      timeoutMs: external_exports.number().int().positive().default(6e5)
     }).default({})
   }).default({}),
   quotas: external_exports.object({
     codex: QuotaConfigSchema.default({}),
     claude: QuotaConfigSchema.default({}),
-    antigravity: QuotaConfigSchema.default({})
+    antigravity: QuotaConfigSchema.default({}),
+    kimi: QuotaConfigSchema.default({})
   }).default({}),
   retention: external_exports.object({
     maxAgeDays: external_exports.number().int().min(1).default(7),
@@ -29729,7 +29919,7 @@ async function loadPolicy(repoRoot) {
   const policyPath = join6(repoRoot, POLICY_FILE_NAME);
   let raw;
   try {
-    raw = await readFile6(policyPath, "utf8");
+    raw = await readFile7(policyPath, "utf8");
   } catch (error2) {
     if (isMissingFile(error2)) return DEFAULT_POLICY;
     const detail = error2 instanceof Error ? error2.message : String(error2);
@@ -29749,6 +29939,13 @@ function isMissingFile(error2) {
 
 // src/config/policy-writer.ts
 function renderPolicyYaml(current, patch) {
+  for (const [rawEngine, value] of Object.entries(patch.reasoning ?? {})) {
+    if (value === void 0) continue;
+    const engine = EngineNameSchema.parse(rawEngine);
+    if (ReasoningSchemaByEngine[engine] === null) {
+      throw new Error(`${engine} does not support reasoning configuration`);
+    }
+  }
   const document = (0, import_yaml2.parseDocument)(current ?? (0, import_yaml2.stringify)(DEFAULT_POLICY));
   if (document.errors.length > 0) {
     throw new Error(`Invalid policy YAML: ${document.errors.map((error2) => error2.message).join("; ")}`);
@@ -29798,11 +29995,11 @@ async function writePolicyFile(repoRoot, patch) {
   const examplePath = join7(repoRoot, "policy.example.yaml");
   let current;
   try {
-    current = await readFile7(policyPath, "utf8");
+    current = await readFile8(policyPath, "utf8");
   } catch (error2) {
     if (!isMissingFile2(error2)) throw readError(policyPath, error2);
     try {
-      current = await readFile7(examplePath, "utf8");
+      current = await readFile8(examplePath, "utf8");
     } catch (exampleError) {
       if (!isMissingFile2(exampleError)) throw readError(examplePath, exampleError);
       current = null;
@@ -29887,12 +30084,14 @@ function summarizePolicy(policy) {
   if (policy.workers.antigravity.model !== void 0) {
     models.antigravity = policy.workers.antigravity.model;
   }
+  if (policy.workers.kimi.model !== void 0) models.kimi = policy.workers.kimi.model;
   const modelTiers = {};
   if (policy.workers.codex.models !== void 0) modelTiers.codex = policy.workers.codex.models;
   if (policy.workers.claude.models !== void 0) modelTiers.claude = policy.workers.claude.models;
   if (policy.workers.antigravity.models !== void 0) {
     modelTiers.antigravity = policy.workers.antigravity.models;
   }
+  if (policy.workers.kimi.models !== void 0) modelTiers.kimi = policy.workers.kimi.models;
   const reasoning = {};
   if (policy.workers.codex.reasoning !== void 0) {
     reasoning.codex = policy.workers.codex.reasoning;
@@ -29933,6 +30132,13 @@ function buildConfigureDelegationDetectPayload(providers, models, currentPolicy)
         models: models.antigravity.models,
         modelsSource: models.antigravity.source,
         ...models.antigravity.defaultModel === void 0 ? {} : { defaultModel: models.antigravity.defaultModel }
+      },
+      kimi: {
+        available: providers.kimi.available,
+        detail: providers.kimi.detail,
+        models: models.kimi.models,
+        modelsSource: models.kimi.source,
+        ...models.kimi.defaultModel === void 0 ? {} : { defaultModel: models.kimi.defaultModel }
       }
     },
     currentPolicy: currentPolicy === null ? null : summarizePolicy(currentPolicy)
@@ -30105,12 +30311,12 @@ function registerDelegateTools(server, store, serverInfo, repoRoot) {
 }
 
 // src/routing/quota.ts
-import { mkdir as mkdir3, readFile as readFile8, writeFile as writeFile4 } from "node:fs/promises";
+import { mkdir as mkdir3, readFile as readFile9, writeFile as writeFile4 } from "node:fs/promises";
 import { dirname, join as join9 } from "node:path";
 var WINDOW_5H_MS = 5 * 60 * 60 * 1e3;
 var WINDOW_WEEK_MS = 7 * 24 * 60 * 60 * 1e3;
 var attemptSchema = external_exports.object({
-  engine: external_exports.enum(["codex", "claude", "antigravity"]),
+  engine: external_exports.enum(["codex", "claude", "antigravity", "kimi"]),
   at: external_exports.number().finite(),
   durationMs: external_exports.number().finite(),
   outcome: external_exports.enum(["ok", "quota", "auth", "other"])
@@ -30120,7 +30326,8 @@ var persistedLedgerSchema = external_exports.object({
   exhaustedUntil: external_exports.object({
     codex: external_exports.number().finite().optional(),
     claude: external_exports.number().finite().optional(),
-    antigravity: external_exports.number().finite().optional()
+    antigravity: external_exports.number().finite().optional(),
+    kimi: external_exports.number().finite().optional()
   })
 });
 var EMPTY_STATE = { attempts: [], exhaustedUntil: {} };
@@ -30143,7 +30350,7 @@ var QuotaLedger = class _QuotaLedger {
   static async load(repoRoot, now = Date.now) {
     const filePath = join9(repoRoot, ".delegate", "quota-ledger.json");
     try {
-      const raw = await readFile8(filePath, "utf8");
+      const raw = await readFile9(filePath, "utf8");
       const parsed = persistedLedgerSchema.parse(JSON.parse(raw));
       return new _QuotaLedger(filePath, parsed, now);
     } catch (error2) {

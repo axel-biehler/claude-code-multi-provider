@@ -62,5 +62,7 @@ provider names may be repeated only as values returned by the tool or selected b
 - Codex — `minimal`/`low`/`medium`/`high`/`xhigh`; recommended `low`/`medium`/`xhigh`.
 - Claude — `low`/`medium`/`high`/`xhigh`/`max`; recommended `low`/`medium`/`max`.
 - Antigravity — `low`/`medium`/`high`; recommended `low`/`medium`/`high`.
+- Kimi — no reasoning values (the CLI has no reasoning flag); configure its effort tiers
+  through the per-effort `models` map instead.
 
 If absent, the provider default applies and no reasoning flag is passed.
