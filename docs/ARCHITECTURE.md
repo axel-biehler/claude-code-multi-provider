@@ -18,7 +18,7 @@ bounded implementation subtasks to other AI engines** through a single MCP "dele
 Priority order for execution engines:
 
 1. **Claude Team** subscription (the orchestrator — never delegated away)
-2. **Existing authenticated CLIs** (Codex CLI, Claude CLI, Antigravity CLI) on their own subscriptions
+2. **Existing authenticated CLIs** (Codex CLI, Claude CLI, Antigravity CLI, Kimi Code CLI) on their own subscriptions
 3. **Paid APIs** — last resort only
 
 Claude decides *when* to delegate; the delegate layer decides *which backend* executes and returns

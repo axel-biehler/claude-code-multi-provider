@@ -23,6 +23,8 @@ escalation on reject (`parent_job_id`/`feedback`/`escalate` on `delegate_task`),
 `delegation-manager` subagent, per-server MCP isolation + timed-out-exit unmasking.
 Antigravity (`agy`) is implemented as a third engine (`src/engines/antigravity.ts`), wired
 through policy/routing/detect/preflight/configure and opt-in via the `policy.yaml` chain.
+Kimi Code (`kimi`) is the fourth engine (`src/engines/kimi.ts`), wired through the same
+surface and opt-in via the chain.
 LiteLLM `api` tier remains designed, awaiting user keys — see PHASE2-RESULTS.
 
 ## How to test
@@ -44,7 +46,7 @@ Engine selection: copy `policy.example.yaml` → `policy.yaml` (gitignored) and 
   keep this path stable). Tool surface lives in `src/mcp/tools.ts` (`registerDelegateTools`,
   `resolveRevision`, payload helpers).
 - Domains: `src/jobs/` (store, executor, paths) · `src/routing/` (policy, router, quota) ·
-  `src/engines/` (codex, claude, antigravity + `shared/` worker-process, failure-signals, prompt — shared
+  `src/engines/` (codex, claude, antigravity, kimi + `shared/` worker-process, failure-signals, prompt — shared
   infra lives here, never inside one engine) · `src/git/` (worktree, gc) · `src/types.ts`
   (cross-domain contract, single file by design).
 - `src/playground/` — target area for delegated example tasks (e2e smoke), NOT product code.
@@ -98,6 +100,16 @@ Engine selection: copy `policy.example.yaml` → `policy.yaml` (gitignored) and 
   allow-list key. There is no per-invocation MCP-disable flag: personal MCP servers in
   `~/.gemini/settings.json` are not isolated beyond the worktree, sanitized env and timeout
   guard; bespoke isolation is a follow-up.
+- Kimi workers use `kimi -p --output-format stream-json` (JSONL chat messages; last assistant
+  message with text = summary). **`--yolo`/`--auto` are rejected in `-p` mode** — pass no
+  permission flag. `--add-dir <worktree>` pins the workspace (kimi keeps an agy-style registry
+  in `~/.kimi-code/workspaces.json`). No timeout flag (armTimeoutGuard enforces ours) and no
+  reasoning flag. Exit codes are contractual: 1 = non-retryable, **75 = retryable** → mapped to
+  the `quota` routing signal; the logged-out error ("No model configured … /login") needs the
+  kimi-specific auth pattern (generic patterns miss it). Auth lives in `~/.kimi-code/credentials/`
+  (HOME passthrough suffices); the binary resolves via `resolveKimiBin`
+  (`~/.kimi-code/bin/kimi`, PATH fallback). No per-invocation MCP-disable flag — same isolation
+  gap as agy.
 - Personal project: public npm registry pinned in `.npmrc`; **never** use a private/corporate registry.
 - Engine selection lives in the `policy.yaml` router (chain + per-engine quotas); quota/auth
   failures reroute to the next engine. Keep results engine-neutral ("delegated worker", not
@@ -109,7 +121,9 @@ Engine selection: copy `policy.example.yaml` → `policy.yaml` (gitignored) and 
   compatible). Worker reasoning = `workers.<engine>.reasoning`, a scalar or per-effort map
   resolved by `resolveWorkerReasoning` in `src/routing/router.ts`; engine-native values pass
   as codex `-c model_reasoning_effort`, claude `--effort`, or agy `--effort`, while absent
-  means no flag. `configure_delegation` writes both forms; keep `effort`
+  means no flag. kimi has **no reasoning flag**: `workers.kimi` has no `reasoning` key
+  (`ReasoningSchemaByEngine.kimi = null`; policy writes reject `reasoning.kimi`) — kimi effort
+  tiers use the `models` map only. `configure_delegation` writes both forms; keep `effort`
   engine/model-agnostic and always set it after assessing the task. On revisions
   (`parent_job_id`) without explicit `effort`, the server auto-escalates one tier
   (`light` → `standard` → `heavy`; no recorded parent effort → `heavy`); explicit `effort`

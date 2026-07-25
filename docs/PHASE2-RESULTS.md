@@ -107,3 +107,35 @@ The blocker in finding 1 is resolved: the real headless CLI `agy` 1.1.5 is insta
 8. Working dir via `cwd` (mirrors claude), `--add-dir` is the fallback lever.
 
 Design decision: default chain stays [codex, claude]; antigravity is opt-in via policy.yaml.
+
+## Phase 3 — Kimi Code engine (shipped, live validation pending login)
+
+Fourth engine `kimi` (`src/engines/kimi.ts`), wired through the full surface like antigravity.
+Spike findings against kimi-code v0.29.1 (`~/.kimi-code/bin/kimi`, official installer — a real
+binary, so no Windows `.cmd`-shim concern):
+
+1. Headless contract: `kimi -p <prompt> --add-dir <worktree> --output-format stream-json
+   [--model=<id>]`. **`--yolo` and `--auto` are both rejected in `-p` mode** ("error: Cannot
+   combine --prompt with --yolo.") — prompt mode takes no permission flag.
+2. stdout is JSONL, OpenAI-chat-style (`{"role":"assistant","content":…}`, `tool_calls`,
+   `role:"tool"`); thinking never appears; progress goes to stderr. Summary = last assistant
+   message with non-empty text (string or `{type:"text"}` parts).
+3. Documented exit codes: 0 success; 1 non-retryable (config/auth/quota); **75 retryable**
+   (rate limit/5xx/timeout) → adapter maps unclassified exit-75 to the `quota` routing signal.
+4. Logged-out failure (exit 1, stderr): "No model configured. Run `kimi` and use /login…" —
+   misses the generic AUTH_PATTERN, hence the kimi-specific auth pattern in the adapter.
+5. No timeout flag (armTimeoutGuard governs) and no reasoning flag: `workers.kimi` has no
+   `reasoning` key, `ReasoningSchemaByEngine.kimi = null`, policy writes reject
+   `reasoning.kimi`; kimi effort tiers use the per-effort `models` map only.
+6. Auth = `kimi login` device flow; credentials in `~/.kimi-code/credentials/kimi-code.json`;
+   `config.toml` starts empty and login populates managed provider/model entries
+   (`parseKimiConfigModel` reads `default_model` for the catalog).
+7. `~/.kimi-code/workspaces.json` is an agy-style workspace registry → `--add-dir` pins the
+   worktree. No per-invocation MCP-disable flag (no `kimi mcp` subcommand in 0.29.1); same
+   isolation posture as agy. `--skills-dir` exists as a future isolation lever.
+8. Pending (blocked on `kimi login` by the operator): live probe, worktree-containment check,
+   `buildWorkerEnv` auth confirmation, full `npm run e2e` with `chain: [kimi]`, and the
+   plugin release. Static `npm run preflight -- --no-probe` and `npm run e2e -- --list-only`
+   pass at rev d6cb0a1.
+
+Design decision: default chain still [codex, claude]; kimi is opt-in via policy.yaml.
