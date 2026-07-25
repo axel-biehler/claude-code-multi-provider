@@ -5,7 +5,7 @@
 
 # Engine chain priority order: the first entry receives every delegated job;
 # later entries are automatic fallbacks on quota exhaustion or auth failure.
-# Antigravity and Kimi are available for inclusion anywhere in this chain.
+# Antigravity, Kimi, and Mammouth are available for inclusion anywhere in this chain.
 chain:
   - codex
   - claude
@@ -81,6 +81,24 @@ workers:
     #   heavy: kimi-heavy-model-id
     # kimi has no reasoning flag — effort tiers use the models map only.
     timeoutMs: 600000
+  mammouth:
+    # Optional; falls back to the Mammouth CLI's configured default.
+    # Run `mammouth models` for provider/model ids such as opencode/big-pickle.
+    # model: opencode/big-pickle
+    # Optional per-effort tiers (see the codex note above).
+    # models:
+    #   light: opencode/big-pickle
+    #   standard: opencode/big-pickle
+    #   heavy: opencode/big-pickle
+    # Optional reasoning values: minimal|low|medium|high|max. Values are passed
+    # to the Mammouth CLI as --variant; a scalar applies to all tiers, a map is
+    # per-tier, and absent uses the provider CLI's own default.
+    # reasoning:
+    #   light: low
+    #   standard: medium
+    #   heavy: high
+    # Scalar alternative: reasoning: high
+    timeoutMs: 600000
 
 # Per-engine quota budgets. Hitting a budget marks the engine exhausted for
 # the cooldown window; the router skips it and tries the next engine.
@@ -98,6 +116,10 @@ quotas:
     maxJobsPerWeek: 50
     exhaustionCooldownMinutes: 60
   kimi:
+    maxJobsPer5h: 10
+    maxJobsPerWeek: 50
+    exhaustionCooldownMinutes: 60
+  mammouth:
     maxJobsPer5h: 10
     maxJobsPerWeek: 50
     exhaustionCooldownMinutes: 60

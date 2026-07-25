@@ -93,6 +93,10 @@ describe('configure_delegation logic', () => {
       source: 'catalog',
       defaultModel: 'kimi-for-coding',
     },
+    mammouth: {
+      models: [{ id: 'opencode/big-pickle', recommended: true }],
+      source: 'cli',
+    },
   } as const
 
   afterEach(async () => {
@@ -108,13 +112,15 @@ describe('configure_delegation logic', () => {
       claude: { available: false, detail: 'auth: missing credentials' },
       antigravity: { available: true, detail: 'binary: /usr/local/bin/agy' },
       kimi: { available: true, detail: 'binary: /opt/kimi' },
+      mammouth: { available: true, detail: 'binary: 1.17.11.2' },
     }
     const policy = PolicySchema.parse({
-      chain: ['codex', 'antigravity'],
+      chain: ['codex', 'antigravity', 'mammouth'],
       workers: {
         claude: { model: 'opus' },
         antigravity: { model: 'gemini-3.5-flash-high' },
         kimi: { model: 'kimi-for-coding', models: { heavy: 'kimi-heavy' } },
+        mammouth: { model: 'opencode/big-pickle' },
       },
     })
 
@@ -155,18 +161,26 @@ describe('configure_delegation logic', () => {
           modelsSource: 'catalog',
           defaultModel: 'kimi-for-coding',
         },
+        mammouth: {
+          available: true,
+          detail: 'binary: 1.17.11.2',
+          models: [{ id: 'opencode/big-pickle', recommended: true }],
+          modelsSource: 'cli',
+        },
       },
       currentPolicy: {
-        chain: ['codex', 'antigravity'],
+        chain: ['codex', 'antigravity', 'mammouth'],
         models: {
           claude: 'opus',
           antigravity: 'gemini-3.5-flash-high',
           kimi: 'kimi-for-coding',
+          mammouth: 'opencode/big-pickle',
         },
         modelTiers: { kimi: { heavy: 'kimi-heavy' } },
       },
     })
     expect(payload.providers.antigravity).not.toHaveProperty('defaultModel')
+    expect(payload.providers.mammouth).not.toHaveProperty('defaultModel')
     expect(payload.providers.codex.models).toBe(discoveredModels.codex.models)
   })
 
@@ -177,6 +191,7 @@ describe('configure_delegation logic', () => {
       claude: { available: false, detail: 'claude detail' },
       antigravity: { available: false, detail: 'antigravity detail' },
       kimi: { available: false, detail: 'kimi detail' },
+      mammouth: { available: false, detail: 'mammouth detail' },
     }
 
     // Act
@@ -198,6 +213,7 @@ describe('configure_delegation logic', () => {
       claude: { available: true, detail: 'authenticated' },
       antigravity: { available: true, detail: 'authenticated' },
       kimi: { available: true, detail: 'authenticated' },
+      mammouth: { available: true, detail: 'authenticated' },
     }
     const policy = PolicySchema.parse({
       workers: {
@@ -205,6 +221,7 @@ describe('configure_delegation logic', () => {
         claude: { models: { standard: 'medium' } },
         antigravity: { models: { heavy: 'gemini-heavy' } },
         kimi: { models: { light: 'kimi-light' } },
+        mammouth: { models: { light: 'mammouth-light' } },
       },
     })
 
@@ -221,6 +238,7 @@ describe('configure_delegation logic', () => {
       claude: { standard: 'medium' },
       antigravity: { heavy: 'gemini-heavy' },
       kimi: { light: 'kimi-light' },
+      mammouth: { light: 'mammouth-light' },
     })
   })
 
@@ -231,11 +249,13 @@ describe('configure_delegation logic', () => {
       claude: { available: true, detail: 'authenticated' },
       antigravity: { available: true, detail: 'authenticated' },
       kimi: { available: true, detail: 'authenticated' },
+      mammouth: { available: true, detail: 'authenticated' },
     }
     const policy = PolicySchema.parse({
       workers: {
         codex: { reasoning: 'high' },
         claude: { reasoning: { light: 'low', heavy: 'max' } },
+        mammouth: { reasoning: { light: 'minimal', heavy: 'max' } },
       },
     })
 
@@ -250,6 +270,7 @@ describe('configure_delegation logic', () => {
     expect(payload.currentPolicy?.reasoning).toEqual({
       codex: 'high',
       claude: { light: 'low', heavy: 'max' },
+      mammouth: { light: 'minimal', heavy: 'max' },
     })
   })
 
@@ -258,6 +279,7 @@ describe('configure_delegation logic', () => {
     ['a tier model map', { claude: { light: 'small', heavy: 'big' } }],
     ['an antigravity model', { antigravity: 'gemini-3.5-flash-high' }],
     ['a kimi model', { kimi: 'kimi-for-coding' }],
+    ['a mammouth model', { mammouth: 'opencode/big-pickle' }],
   ])('accepts %s in write input', (_label, models) => {
     expect(
       parseConfigureDelegationWriteInput({ action: 'write', chain: ['codex'], models }),
@@ -267,6 +289,7 @@ describe('configure_delegation logic', () => {
   test.each([
     ['scalar reasoning', { codex: 'high' }],
     ['per-tier reasoning', { claude: { light: 'low', heavy: 'max' } }],
+    ['mammouth reasoning', { mammouth: { light: 'minimal', heavy: 'max' } }],
   ])('accepts %s in write input', (_label, reasoning) => {
     expect(
       parseConfigureDelegationWriteInput({

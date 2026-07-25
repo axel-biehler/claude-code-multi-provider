@@ -34,6 +34,7 @@ describe('provider authentication detection', () => {
     await mkdir(pathDirectory)
     originalHome = process.env.HOME
     originalPath = process.env.PATH
+    originalHome = process.env.HOME
     process.env.HOME = repoRoot
     process.env.PATH = [pathDirectory, '/usr/bin', '/bin'].join(delimiter)
   })
@@ -43,11 +44,13 @@ describe('provider authentication detection', () => {
     else process.env.HOME = originalHome
     if (originalPath === undefined) delete process.env.PATH
     else process.env.PATH = originalPath
+    if (originalHome === undefined) delete process.env.HOME
+    else process.env.HOME = originalHome
     await rm(repoRoot, { recursive: true, force: true })
     vi.restoreAllMocks()
   })
 
-  test('returns both authenticated providers without writing to stdout', async () => {
+  test('returns every authenticated provider without writing to stdout', async () => {
     // Arrange
     const bundledCodex = await writeBundledCodex(
       repoRoot,
@@ -65,13 +68,25 @@ describe('provider authentication detection', () => {
       join(pathDirectory, 'kimi'),
       '[ "$1" = "--version" ] && printf "Kimi Code 0.29.1\\n"',
     )
+    const mammouthBin = join(repoRoot, '.mammouth', 'bin', 'mammouth')
+    await mkdir(join(repoRoot, '.mammouth', 'bin'), { recursive: true })
+    await writeExecutable(
+      mammouthBin,
+      '[ "$1" = "--version" ] && printf "1.17.11.2\\n"',
+    )
     const stdout = vi.spyOn(console, 'log').mockImplementation(() => undefined)
 
     // Act
     const detections = await detectAuthenticatedProviders(repoRoot)
 
     // Assert
-    expect(Object.keys(detections).sort()).toEqual(['antigravity', 'claude', 'codex', 'kimi'])
+    expect(Object.keys(detections).sort()).toEqual([
+      'antigravity',
+      'claude',
+      'codex',
+      'kimi',
+      'mammouth',
+    ])
     expect(detections.codex).toEqual({
       available: true,
       detail: `binary: ${process.execPath} ${bundledCodex}`,
@@ -91,6 +106,11 @@ describe('provider authentication detection', () => {
     expect(detections.kimi.detail).toContain(
       'authentication is verified when the first delegated job runs',
     )
+    expect(detections.mammouth).toEqual({
+      available: true,
+      detail:
+        'binary: 1.17.11.2; authentication is verified when the first delegated job runs',
+    })
     expect(stdout).not.toHaveBeenCalled()
   })
 
@@ -119,6 +139,7 @@ describe('provider authentication detection', () => {
     const claude = await detectAuthenticatedProvider('claude', repoRoot)
     const antigravity = await detectAuthenticatedProvider('antigravity', repoRoot)
     const kimi = await detectAuthenticatedProvider('kimi', repoRoot)
+    const mammouth = await detectAuthenticatedProvider('mammouth', repoRoot)
 
     // Assert
     expect(codex.available).toBe(false)
@@ -156,6 +177,16 @@ describe('provider authentication detection', () => {
         status: 'fail',
         message:
           'kimi CLI not found — install Kimi Code CLI (https://code.kimi.com) and run: kimi login',
+      },
+    ])
+    expect(mammouth.available).toBe(false)
+    expect(mammouth.detail).toBe(
+      'mammouth CLI not found — install Mammouth Code and sign in via: mammouth providers',
+    )
+    expect(mammouth.reports).toEqual([
+      {
+        status: 'fail',
+        message: 'mammouth CLI not found — install Mammouth Code and sign in via: mammouth providers',
       },
     ])
   })

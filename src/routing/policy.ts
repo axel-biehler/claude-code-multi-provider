@@ -6,16 +6,19 @@ import type { QuotaConfig } from '../types'
 
 const POLICY_FILE_NAME = 'policy.yaml'
 
-export const EngineNameSchema = z.enum(['codex', 'claude', 'antigravity', 'kimi'])
+export const EngineNameSchema = z.enum(['codex', 'claude', 'antigravity', 'kimi', 'mammouth'])
 export const EffortSchema = z.enum(['light', 'standard', 'heavy'])
 export const CodexReasoningSchema = z.enum(['minimal', 'low', 'medium', 'high', 'xhigh'])
 export const ClaudeReasoningSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max'])
 export const AntigravityReasoningSchema = z.enum(['low', 'medium', 'high'])
+// Mammouth passes this UX guard straight through as `--variant`; its CLI does not validate it.
+export const MammouthReasoningSchema = z.enum(['minimal', 'low', 'medium', 'high', 'max'])
 export const ReasoningSchemaByEngine = {
   codex: CodexReasoningSchema,
   claude: ClaudeReasoningSchema,
   antigravity: AntigravityReasoningSchema,
   kimi: null,
+  mammouth: MammouthReasoningSchema,
 } as const
 
 // Model ids are handed to the worker CLI as `--model=<id>`; reject a leading '-' so a
@@ -89,6 +92,19 @@ export const PolicySchema = z.object({
           timeoutMs: z.number().int().positive().default(600_000),
         })
         .default({}),
+      mammouth: z
+        .object({
+          model: ModelIdSchema.optional(),
+          models: z.record(EffortSchema, ModelIdSchema).optional(),
+          reasoning: z
+            .union([
+              MammouthReasoningSchema,
+              z.record(EffortSchema, MammouthReasoningSchema),
+            ])
+            .optional(),
+          timeoutMs: z.number().int().positive().default(600_000),
+        })
+        .default({}),
     })
     .default({}),
   quotas: z
@@ -97,6 +113,7 @@ export const PolicySchema = z.object({
       claude: QuotaConfigSchema.default({}),
       antigravity: QuotaConfigSchema.default({}),
       kimi: QuotaConfigSchema.default({}),
+      mammouth: QuotaConfigSchema.default({}),
     })
     .default({}),
   retention: z

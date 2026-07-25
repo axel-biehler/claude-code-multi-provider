@@ -5,6 +5,7 @@ import {
   resolveCodexCli,
   resolveKimiBin,
 } from '../engines/shared/cli-command'
+import { resolveMammouthBin } from '../engines/mammouth'
 import type { CliCommand } from '../engines/shared/cli-command'
 import type { EngineName } from '../types'
 
@@ -168,6 +169,28 @@ export async function detectKimi(): Promise<ProviderStaticDetection> {
   }
 }
 
+export async function detectMammouth(): Promise<ProviderStaticDetection> {
+  const bin = await resolveMammouthBin()
+  const result = await run(bin, ['--version'])
+  const notFound = 'mammouth CLI not found — install Mammouth Code and sign in via: mammouth providers'
+  if (result.spawnErrorCode !== undefined || result.exitCode !== 0) {
+    return {
+      engine: 'mammouth',
+      available: false,
+      detail: notFound,
+      reports: [{ status: 'fail', message: notFound }],
+    }
+  }
+
+  const version = firstLine(result.stdout)
+  return {
+    engine: 'mammouth',
+    available: true,
+    detail: `binary: ${version}; authentication is verified when the first delegated job runs`,
+    reports: [{ status: 'ok', message: `mammouth binary: ${version}` }],
+  }
+}
+
 export function detectAuthenticatedProvider(
   engine: EngineName,
   repoRoot: string,
@@ -175,22 +198,25 @@ export function detectAuthenticatedProvider(
   if (engine === 'codex') return detectCodex(repoRoot)
   if (engine === 'antigravity') return detectAntigravity()
   if (engine === 'kimi') return detectKimi()
+  if (engine === 'mammouth') return detectMammouth()
   return detectClaude()
 }
 
 export async function detectAuthenticatedProviders(
   repoRoot: string,
 ): Promise<Record<EngineName, ProviderDetection>> {
-  const [codex, claude, antigravity, kimi] = await Promise.all([
+  const [codex, claude, antigravity, kimi, mammouth] = await Promise.all([
     detectAuthenticatedProvider('codex', repoRoot),
     detectAuthenticatedProvider('claude', repoRoot),
     detectAuthenticatedProvider('antigravity', repoRoot),
     detectAuthenticatedProvider('kimi', repoRoot),
+    detectAuthenticatedProvider('mammouth', repoRoot),
   ])
   return {
     codex: { available: codex.available, detail: codex.detail },
     claude: { available: claude.available, detail: claude.detail },
     antigravity: { available: antigravity.available, detail: antigravity.detail },
     kimi: { available: kimi.available, detail: kimi.detail },
+    mammouth: { available: mammouth.available, detail: mammouth.detail },
   }
 }

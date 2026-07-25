@@ -691,6 +691,56 @@ describe('buildDefaultWorkerRunner', () => {
       await rm(repoRoot, { recursive: true, force: true })
     }
   })
+
+  test('runs mammouth with the user-local binary and configured options', async () => {
+    // Arrange
+    const repoRoot = await mkdtemp(join(tmpdir(), 'delegate-mammouth-runner-'))
+    const fakeHome = join(repoRoot, 'home')
+    const mammouthBin = join(fakeHome, '.mammouth', 'bin', 'mammouth')
+    const paths = buildJobPaths(repoRoot, 'job-mammouth-runner')
+    const originalHome = process.env.HOME
+    const originalPath = process.env.PATH
+    await mkdir(join(fakeHome, '.mammouth', 'bin'), { recursive: true })
+    await mkdir(paths.jobDir, { recursive: true })
+    await writeFile(
+      mammouthBin,
+      '#!/bin/sh\nprintf \'{"type":"text","part":{"text":"%s"}}\\n\' "$0|$*"\n',
+      'utf8',
+    )
+    await chmod(mammouthBin, 0o755)
+    process.env.HOME = fakeHome
+    process.env.PATH = '/usr/bin:/bin'
+
+    try {
+      // Act
+      const outcome = await buildDefaultWorkerRunner()({
+        engine: 'mammouth',
+        model: 'opencode/big-pickle',
+        reasoning: 'high',
+        repoRoot,
+        worktreePath: repoRoot,
+        prompt: 'Reply with exactly: ok',
+        paths,
+        policy: PolicySchema.parse({
+          workers: { mammouth: { timeoutMs: 123_000 } },
+        }),
+      })
+
+      // Assert
+      expect(outcome.exitCode).toBe(0)
+      expect(outcome.lastMessage).toContain(
+        `${mammouthBin}|run --format json --dangerously-skip-permissions`,
+      )
+      expect(outcome.lastMessage).toContain('--model=opencode/big-pickle')
+      expect(outcome.lastMessage).toContain('--variant=high -- Reply with exactly: ok')
+    } finally {
+      if (originalHome === undefined) delete process.env.HOME
+      else process.env.HOME = originalHome
+      if (originalPath === undefined) delete process.env.PATH
+      else process.env.PATH = originalPath
+      await rm(repoRoot, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('neutralizeRunnerErrors', () => {
@@ -721,6 +771,7 @@ describe('neutralizeRunnerErrors', () => {
     expect(error?.message).not.toMatch(/codex/i)
     expect(error?.message).not.toMatch(/claude/i)
     expect(error?.message).not.toMatch(/antigravity|agy/i)
+    expect(error?.message).not.toMatch(/mammouth/i)
   })
 
   test('passes successful outcomes through untouched', async () => {

@@ -11,7 +11,13 @@ import type { PolicyPatch } from '../src/config/policy-writer'
 import { ReasoningSchemaByEngine } from '../src/routing/policy'
 import type { Effort, EngineName } from '../src/types'
 
-const PROVIDERS = ['codex', 'claude', 'antigravity', 'kimi'] as const satisfies readonly EngineName[]
+const PROVIDERS = [
+  'codex',
+  'claude',
+  'antigravity',
+  'kimi',
+  'mammouth',
+] as const satisfies readonly EngineName[]
 const EFFORT_TIERS = ['light', 'standard', 'heavy'] as const satisfies readonly Effort[]
 
 function reasoningValuesForEngine(engine: EngineName): readonly string[] {
@@ -24,12 +30,14 @@ const REASONING_VALUES: Record<EngineName, readonly string[]> = {
   claude: reasoningValuesForEngine('claude'),
   antigravity: reasoningValuesForEngine('antigravity'),
   kimi: reasoningValuesForEngine('kimi'),
+  mammouth: reasoningValuesForEngine('mammouth'),
 }
 
 const RECOMMENDED_REASONING: Partial<Record<EngineName, Record<Effort, string>>> = {
   codex: { light: 'low', standard: 'medium', heavy: 'xhigh' },
   claude: { light: 'low', standard: 'medium', heavy: 'max' },
   antigravity: { light: 'low', standard: 'medium', heavy: 'high' },
+  mammouth: { light: 'low', standard: 'medium', heavy: 'high' },
 }
 
 function isEngineName(value: string): value is EngineName {
@@ -37,7 +45,8 @@ function isEngineName(value: string): value is EngineName {
     value === 'codex' ||
     value === 'claude' ||
     value === 'antigravity' ||
-    value === 'kimi'
+    value === 'kimi' ||
+    value === 'mammouth'
   )
 }
 

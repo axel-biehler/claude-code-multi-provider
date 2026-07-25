@@ -26,10 +26,10 @@ describe('parseProviderSelection', () => {
 
   test('uses every available provider when the answer is blank', () => {
     // Act
-    const chain = parseProviderSelection('  ', ['claude', 'antigravity', 'kimi'])
+    const chain = parseProviderSelection('  ', ['claude', 'antigravity', 'kimi', 'mammouth'])
 
     // Assert
-    expect(chain).toEqual(['claude', 'antigravity', 'kimi'])
+    expect(chain).toEqual(['claude', 'antigravity', 'kimi', 'mammouth'])
   })
 
   test('rejects unavailable and duplicate providers', () => {
@@ -46,31 +46,38 @@ describe('parseProviderSelection', () => {
 describe('buildPolicyPatch', () => {
   test('omits a blank codex model and defaults a blank claude model to sonnet', () => {
     // Act
-    const patch = buildPolicyPatch(['codex', 'claude', 'antigravity'], {
+    const patch = buildPolicyPatch(['codex', 'claude', 'antigravity', 'mammouth'], {
       codex: '  ',
       claude: '',
       antigravity: ' ',
+      mammouth: ' ',
     })
 
     // Assert
     expect(patch).toEqual({
-      chain: ['codex', 'claude', 'antigravity'],
+      chain: ['codex', 'claude', 'antigravity', 'mammouth'],
       models: { claude: 'sonnet' },
     })
   })
 
   test('trims explicit model names', () => {
     // Act
-    const patch = buildPolicyPatch(['claude', 'codex', 'antigravity'], {
+    const patch = buildPolicyPatch(['claude', 'codex', 'antigravity', 'mammouth'], {
       codex: ' gpt-test ',
       claude: ' opus ',
       antigravity: ' gemini-test ',
+      mammouth: ' opencode/big-pickle ',
     })
 
     // Assert
     expect(patch).toEqual({
-      chain: ['claude', 'codex', 'antigravity'],
-      models: { claude: 'opus', codex: 'gpt-test', antigravity: 'gemini-test' },
+      chain: ['claude', 'codex', 'antigravity', 'mammouth'],
+      models: {
+        claude: 'opus',
+        codex: 'gpt-test',
+        antigravity: 'gemini-test',
+        mammouth: 'opencode/big-pickle',
+      },
     })
   })
 
@@ -173,6 +180,7 @@ describe('resolveReasoningAnswer', () => {
     expect(resolveReasoningAnswer(' xhigh ', 'codex')).toBe('xhigh')
     expect(resolveReasoningAnswer(' max ', 'claude')).toBe('max')
     expect(resolveReasoningAnswer(' high ', 'antigravity')).toBe('high')
+    expect(resolveReasoningAnswer(' max ', 'mammouth')).toBe('max')
   })
 
   test('returns an empty string for a blank answer', () => {
@@ -193,6 +201,9 @@ describe('resolveReasoningAnswer', () => {
     )
     expect(() => resolveReasoningAnswer('xhigh', 'antigravity')).toThrow(
       'Reasoning must be one of: low, medium, high',
+    )
+    expect(() => resolveReasoningAnswer('xhigh', 'mammouth')).toThrow(
+      'Reasoning must be one of: minimal, low, medium, high, max',
     )
   })
 })

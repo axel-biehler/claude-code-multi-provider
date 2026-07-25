@@ -9,6 +9,7 @@ import { runClaude } from '../engines/claude'
 import { resolveCodexConfigOverrides, runCodex } from '../engines/codex'
 import { runKimi } from '../engines/kimi'
 import { resolveCodexCli, resolveKimiBin } from '../engines/shared/cli-command'
+import { resolveMammouthBin, runMammouth } from '../engines/mammouth'
 import type { CliCommand } from '../engines/shared/cli-command'
 import { buildPrompt } from '../engines/shared/prompt'
 import { collectDiff, createWorktree, removeWorktree } from '../git/worktree'
@@ -210,6 +211,18 @@ export function buildDefaultWorkerRunner(): WorkerRunner {
         paths: req.paths,
         timeoutMs: req.policy.workers.kimi.timeoutMs,
         model: req.model,
+      })
+    }
+    if (req.engine === 'mammouth') {
+      const worker = req.policy.workers.mammouth
+      return runMammouth({
+        mammouthBin: await resolveMammouthBin(),
+        worktreePath: req.worktreePath,
+        prompt: req.prompt,
+        paths: req.paths,
+        timeoutMs: worker.timeoutMs,
+        model: req.model,
+        reasoning: req.reasoning,
       })
     }
     const codexCli = await resolveCodexCli(req.repoRoot)

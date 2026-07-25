@@ -8,6 +8,11 @@ import { cliInvocation, resolveKimiBin } from '../src/engines/shared/cli-command
 import type { CliCommand } from '../src/engines/shared/cli-command'
 import { classifyClaudeFailure, parseClaudeJson } from '../src/engines/claude'
 import { classifyCodexFailure } from '../src/engines/codex'
+import {
+  classifyMammouthFailure,
+  parseMammouthEvents,
+  resolveMammouthBin,
+} from '../src/engines/mammouth'
 import { buildWorkerEnv } from '../src/engines/shared/worker-env'
 import { loadPolicy } from '../src/routing/policy'
 import type { Policy } from '../src/routing/policy'
@@ -23,6 +28,10 @@ const CLAUDE_PROBE_MODEL = 'sonnet'
 const ANTIGRAVITY_PROBE_PROMPT = 'Reply with exactly: ok'
 const ANTIGRAVITY_PROBE_MODEL = 'gemini-3.5-flash-low'
 const KIMI_PROBE_PROMPT = 'Reply with exactly: ok'
+const MAMMOUTH_PROBE_PROMPT = 'Reply with exactly: ok'
+// This free-tier model is available to every Mammouth install, even before sign-in,
+// so the probe validates binary, network, and plumbing at zero cost.
+const MAMMOUTH_PROBE_MODEL = 'opencode/big-pickle'
 // Measured floor: a minimal `claude -p` costs ~$0.41 just to boot (≈69k cache-creation
 // tokens of CLI system prompt), so the cap must sit well above it. Guard, not a target.
 const CLAUDE_PROBE_BUDGET_USD = '1'
@@ -356,6 +365,40 @@ async function probeKimi(reporter: Reporter): Promise<boolean> {
   return false
 }
 
+async function probeMammouth(reporter: Reporter): Promise<boolean> {
+  const result = await run(
+    await resolveMammouthBin(),
+    [
+      'run',
+      '--format',
+      'json',
+      '--dangerously-skip-permissions',
+      `--model=${MAMMOUTH_PROBE_MODEL}`,
+      '--',
+      MAMMOUTH_PROBE_PROMPT,
+    ],
+    { timeoutMs: PROBE_TIMEOUT_MS, env: buildWorkerEnv() },
+  )
+  if (result.exitCode === 0 && parseMammouthEvents(result.stdout).lastMessage !== null) {
+    reporter.ok('mammouth probe: usable')
+    return true
+  }
+  const kind =
+    classifyMammouthFailure({
+      exitCode: result.exitCode,
+      eventsText: result.stdout,
+      stderrText: result.stderr,
+    }) ?? 'other'
+  const detail =
+    kind === 'quota'
+      ? QUOTA_VERDICT
+      : kind === 'auth'
+        ? 'not signed in — run: mammouth providers'
+        : describeOtherFailure(result)
+  reporter.fail(`mammouth probe: ${detail}`)
+  return false
+}
+
 // Probing an engine whose static checks already failed would burn a real request on a
 // known-broken setup — null keeps the static verdict authoritative for it.
 async function runProbe(reporter: Reporter, outcome: StaticCheckOutcome): Promise<boolean | null> {
@@ -365,6 +408,7 @@ async function runProbe(reporter: Reporter, outcome: StaticCheckOutcome): Promis
   }
   if (outcome.engine === 'antigravity') return probeAntigravity(reporter)
   if (outcome.engine === 'kimi') return probeKimi(reporter)
+  if (outcome.engine === 'mammouth') return probeMammouth(reporter)
   return probeClaude(reporter)
 }
 

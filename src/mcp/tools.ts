@@ -85,6 +85,9 @@ function summarizePolicy(policy: Policy): PolicySummary {
     models.antigravity = policy.workers.antigravity.model
   }
   if (policy.workers.kimi.model !== undefined) models.kimi = policy.workers.kimi.model
+  if (policy.workers.mammouth.model !== undefined) {
+    models.mammouth = policy.workers.mammouth.model
+  }
   const modelTiers: Partial<Record<EngineName, Partial<Record<Effort, string>>>> = {}
   if (policy.workers.codex.models !== undefined) modelTiers.codex = policy.workers.codex.models
   if (policy.workers.claude.models !== undefined) modelTiers.claude = policy.workers.claude.models
@@ -92,6 +95,9 @@ function summarizePolicy(policy: Policy): PolicySummary {
     modelTiers.antigravity = policy.workers.antigravity.models
   }
   if (policy.workers.kimi.models !== undefined) modelTiers.kimi = policy.workers.kimi.models
+  if (policy.workers.mammouth.models !== undefined) {
+    modelTiers.mammouth = policy.workers.mammouth.models
+  }
   const reasoning: Partial<
     Record<EngineName, string | Partial<Record<Effort, string>>>
   > = {}
@@ -103,6 +109,9 @@ function summarizePolicy(policy: Policy): PolicySummary {
   }
   if (policy.workers.antigravity.reasoning !== undefined) {
     reasoning.antigravity = policy.workers.antigravity.reasoning
+  }
+  if (policy.workers.mammouth.reasoning !== undefined) {
+    reasoning.mammouth = policy.workers.mammouth.reasoning
   }
   return {
     chain: policy.chain,
@@ -157,6 +166,15 @@ export function buildConfigureDelegationDetectPayload(
         ...(models.kimi.defaultModel === undefined
           ? {}
           : { defaultModel: models.kimi.defaultModel }),
+      },
+      mammouth: {
+        available: providers.mammouth.available,
+        detail: providers.mammouth.detail,
+        models: models.mammouth.models,
+        modelsSource: models.mammouth.source,
+        ...(models.mammouth.defaultModel === undefined
+          ? {}
+          : { defaultModel: models.mammouth.defaultModel }),
       },
     },
     currentPolicy: currentPolicy === null ? null : summarizePolicy(currentPolicy),

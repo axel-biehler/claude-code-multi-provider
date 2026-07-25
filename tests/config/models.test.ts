@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import {
   listAllProviderModels,
   listProviderModels,
-  parseAgyModelsOutput,
+  parseLineModelsOutput,
   parseCodexConfigModel,
   parseKimiConfigModel,
 } from '../../src/config/models'
@@ -39,8 +39,8 @@ describe('provider model discovery', () => {
     await rm(temporaryRoot, { recursive: true, force: true })
   })
 
-  test('parses agy output in its newest-first order and recommends the first model', () => {
-    const models = parseAgyModelsOutput(
+  test('parses line-based model output in order and recommends the first model', () => {
+    const models = parseLineModelsOutput(
       'gemini-3.6-flash-high\ngemini-3.6-flash-medium\nclaude-sonnet-4-6\n',
     )
 
@@ -51,8 +51,8 @@ describe('provider model discovery', () => {
     ])
   })
 
-  test('skips blank and whitespace-only agy output lines', () => {
-    const models = parseAgyModelsOutput(
+  test('skips blank and whitespace-only model output lines', () => {
+    const models = parseLineModelsOutput(
       '\n  gemini-3.6-flash-high  \n\t\n gemini-3.6-flash-low \n',
     )
 
@@ -93,6 +93,39 @@ describe('provider model discovery', () => {
       ],
       source: 'cli',
     })
+  })
+
+  test('lists mammouth provider/model ids from the user-local CLI', async () => {
+    // Arrange
+    const mammouthDirectory = join(temporaryRoot, '.mammouth', 'bin')
+    await mkdir(mammouthDirectory, { recursive: true })
+    await writeExecutable(
+      join(mammouthDirectory, 'mammouth'),
+      '[ "$1" = "models" ] && printf "opencode/big-pickle\\nanthropic/claude-sonnet-4-6\\n"',
+    )
+
+    // Act
+    const provider = await listProviderModels('mammouth', temporaryRoot)
+
+    // Assert
+    expect(provider).toEqual({
+      models: [
+        { id: 'opencode/big-pickle', recommended: true },
+        { id: 'anthropic/claude-sonnet-4-6' },
+      ],
+      source: 'cli',
+    })
+  })
+
+  test('uses an empty mammouth catalog when model discovery fails', async () => {
+    // Arrange
+    process.env.PATH = pathDirectory
+
+    // Act
+    const provider = await listProviderModels('mammouth', temporaryRoot)
+
+    // Assert
+    expect(provider).toEqual({ models: [], source: 'catalog' })
   })
 
   test('extracts only a top-level codex model assignment', () => {
@@ -194,10 +227,17 @@ default_model = "must-not-match"
 
     const providers = await listAllProviderModels(temporaryRoot)
 
-    expect(Object.keys(providers).sort()).toEqual(['antigravity', 'claude', 'codex', 'kimi'])
+    expect(Object.keys(providers).sort()).toEqual([
+      'antigravity',
+      'claude',
+      'codex',
+      'kimi',
+      'mammouth',
+    ])
     expect(providers.antigravity.source).toBe('catalog')
     expect(providers.codex.models).toEqual([])
     expect(providers.kimi.models).toEqual([])
     expect(providers.claude.defaultModel).toBe('sonnet')
+    expect(providers.mammouth).toEqual({ models: [], source: 'catalog' })
   })
 })

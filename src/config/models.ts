@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { resolveMammouthBin } from '../engines/mammouth'
 import type { EngineName } from '../types'
 
 const EXEC_MAX_BUFFER_BYTES = 16 * 1024 * 1024
@@ -49,6 +50,10 @@ function kimiFallback(): ProviderModels {
   return { models: [], source: 'catalog' }
 }
 
+function mammouthFallback(): ProviderModels {
+  return { models: [], source: 'catalog' }
+}
+
 function run(command: string, args: readonly string[]): Promise<RunResult> {
   return new Promise((resolvePromise) => {
     try {
@@ -75,7 +80,7 @@ function run(command: string, args: readonly string[]): Promise<RunResult> {
   })
 }
 
-export function parseAgyModelsOutput(stdout: string): readonly ModelOption[] {
+export function parseLineModelsOutput(stdout: string): readonly ModelOption[] {
   return stdout
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -108,7 +113,13 @@ export function parseKimiConfigModel(toml: string): string | undefined {
 async function listAntigravityModels(): Promise<ProviderModels> {
   const result = await run('agy', ['models'])
   if (result.exitCode !== 0) return antigravityFallback()
-  return { models: parseAgyModelsOutput(result.stdout), source: 'cli' }
+  return { models: parseLineModelsOutput(result.stdout), source: 'cli' }
+}
+
+export async function listMammouthModels(): Promise<ProviderModels> {
+  const result = await run(await resolveMammouthBin(), ['models'])
+  if (result.exitCode !== 0) return mammouthFallback()
+  return { models: parseLineModelsOutput(result.stdout), source: 'cli' }
 }
 
 async function listCodexModels(): Promise<ProviderModels> {
@@ -158,6 +169,7 @@ export function listProviderModels(
   repoRoot: string,
 ): Promise<ProviderModels> {
   if (engine === 'antigravity') return listAntigravityModels()
+  if (engine === 'mammouth') return listMammouthModels()
   if (engine === 'codex') return listCodexModels()
   if (engine === 'kimi') return listKimiModels()
   return listClaudeModels()
@@ -166,11 +178,12 @@ export function listProviderModels(
 export async function listAllProviderModels(
   repoRoot: string,
 ): Promise<Record<EngineName, ProviderModels>> {
-  const [codex, claude, antigravity, kimi] = await Promise.all([
+  const [codex, claude, antigravity, kimi, mammouth] = await Promise.all([
     listProviderModels('codex', repoRoot).catch(codexFallback),
     listProviderModels('claude', repoRoot).catch(listClaudeModels),
     listProviderModels('antigravity', repoRoot).catch(antigravityFallback),
     listProviderModels('kimi', repoRoot).catch(kimiFallback),
+    listProviderModels('mammouth', repoRoot).catch(mammouthFallback),
   ])
-  return { codex, claude, antigravity, kimi }
+  return { codex, claude, antigravity, kimi, mammouth }
 }

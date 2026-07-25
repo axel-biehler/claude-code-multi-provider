@@ -91,6 +91,26 @@ describe('resolveWorkerModel', () => {
     expect(tierModel).toBe('kimi-heavy')
     expect(fallbackModel).toBe('kimi-default')
   })
+
+  test('resolves mammouth per-effort models with an optional scalar fallback', () => {
+    // Arrange
+    const policy = PolicySchema.parse({
+      workers: {
+        mammouth: {
+          model: 'opencode/default',
+          models: { heavy: 'opencode/heavy' },
+        },
+      },
+    })
+
+    // Act
+    const tierModel = resolveWorkerModel(policy, 'mammouth', 'heavy')
+    const fallbackModel = resolveWorkerModel(policy, 'mammouth', 'light')
+
+    // Assert
+    expect(tierModel).toBe('opencode/heavy')
+    expect(fallbackModel).toBe('opencode/default')
+  })
 })
 
 describe('resolveWorkerReasoning', () => {
@@ -137,6 +157,21 @@ describe('resolveWorkerReasoning', () => {
 
     // Assert
     expect(reasoning).toBeUndefined()
+  })
+
+  test('resolves mammouth per-effort reasoning without cross-tier fallback', () => {
+    // Arrange
+    const policy = PolicySchema.parse({
+      workers: { mammouth: { reasoning: { light: 'low', heavy: 'max' } } },
+    })
+
+    // Act
+    const heavy = resolveWorkerReasoning(policy, 'mammouth', 'heavy')
+    const standard = resolveWorkerReasoning(policy, 'mammouth', 'standard')
+
+    // Assert
+    expect(heavy).toBe('max')
+    expect(standard).toBeUndefined()
   })
 
   test('returns undefined when reasoning is absent', () => {
@@ -226,6 +261,21 @@ describe('selectEngine', () => {
 
     // Assert
     expect(selected).toBe('kimi')
+  })
+
+  test('routes through mammouth when it is next in the configured chain', async () => {
+    // Arrange
+    const policy = PolicySchema.parse({
+      chain: ['codex', 'mammouth', 'antigravity', 'claude'],
+    })
+    const ledger = await QuotaLedger.load(repoRoot, now)
+    await ledger.markExhausted('codex', 60)
+
+    // Act
+    const selected = selectEngine(policy, ledger)
+
+    // Assert
+    expect(selected).toBe('mammouth')
   })
 
   test('falls through when ok-records consume the first engine 5h cap', async () => {

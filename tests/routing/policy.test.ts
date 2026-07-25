@@ -30,11 +30,14 @@ describe('PolicySchema', () => {
     expect(policy.workers.antigravity.model).toBeUndefined()
     expect(policy.workers.kimi.timeoutMs).toBe(600_000)
     expect(policy.workers.kimi.model).toBeUndefined()
+    expect(policy.workers.mammouth.timeoutMs).toBe(600_000)
+    expect(policy.workers.mammouth.model).toBeUndefined()
     expect(policy.workers.claude.model).toBe('sonnet')
     expect(policy.workers.claude.maxBudgetUsd).toBe(2)
     expect(policy.quotas.codex.maxJobsPer5h).toBe(10)
     expect(policy.quotas.antigravity.maxJobsPer5h).toBe(10)
     expect(policy.quotas.kimi.maxJobsPer5h).toBe(10)
+    expect(policy.quotas.mammouth.maxJobsPer5h).toBe(10)
     expect(policy.quotas.claude.maxJobsPerWeek).toBe(50)
     expect(policy.retention).toEqual({ maxAgeDays: 7, keepLast: 10 })
   })
@@ -93,6 +96,42 @@ describe('PolicySchema', () => {
     expect(policy.workers.kimi).not.toHaveProperty('reasoning')
   })
 
+  test('accepts mammouth in the chain with model, reasoning, and quota overrides', () => {
+    // Arrange
+    const config = {
+      chain: ['mammouth'],
+      workers: {
+        mammouth: {
+          model: 'opencode/big-pickle',
+          reasoning: 'max',
+        },
+      },
+      quotas: {
+        mammouth: {
+          maxJobsPer5h: 7,
+          maxJobsPerWeek: 21,
+          exhaustionCooldownMinutes: 45,
+        },
+      },
+    }
+
+    // Act
+    const policy = PolicySchema.parse(config)
+
+    // Assert
+    expect(policy.chain).toEqual(['mammouth'])
+    expect(policy.workers.mammouth).toEqual({
+      model: 'opencode/big-pickle',
+      reasoning: 'max',
+      timeoutMs: 600_000,
+    })
+    expect(policy.quotas.mammouth).toEqual({
+      maxJobsPer5h: 7,
+      maxJobsPerWeek: 21,
+      exhaustionCooldownMinutes: 45,
+    })
+  })
+
   test('accepts per-tier worker models', () => {
     // Arrange
     const config = {
@@ -100,6 +139,7 @@ describe('PolicySchema', () => {
         codex: { models: { light: 'gpt-light', heavy: 'gpt-heavy' } },
         antigravity: { models: { light: 'gemini-light', heavy: 'gemini-heavy' } },
         kimi: { models: { standard: 'kimi-standard' } },
+        mammouth: { models: { light: 'mammouth-light', heavy: 'mammouth-heavy' } },
         claude: { models: { standard: 'claude-standard' } },
       },
     }
@@ -114,6 +154,10 @@ describe('PolicySchema', () => {
       heavy: 'gemini-heavy',
     })
     expect(policy.workers.kimi.models).toEqual({ standard: 'kimi-standard' })
+    expect(policy.workers.mammouth.models).toEqual({
+      light: 'mammouth-light',
+      heavy: 'mammouth-heavy',
+    })
     expect(policy.workers.claude.models).toEqual({ standard: 'claude-standard' })
   })
 
@@ -124,6 +168,7 @@ describe('PolicySchema', () => {
         codex: { reasoning: 'xhigh' },
         claude: { reasoning: 'max' },
         antigravity: { reasoning: 'high' },
+        mammouth: { reasoning: 'max' },
       },
     }
 
@@ -134,6 +179,7 @@ describe('PolicySchema', () => {
     expect(policy.workers.codex.reasoning).toBe('xhigh')
     expect(policy.workers.claude.reasoning).toBe('max')
     expect(policy.workers.antigravity.reasoning).toBe('high')
+    expect(policy.workers.mammouth.reasoning).toBe('max')
   })
 
   test('accepts per-tier reasoning settings for every worker', () => {
@@ -143,6 +189,7 @@ describe('PolicySchema', () => {
         codex: { reasoning: { light: 'minimal', heavy: 'xhigh' } },
         claude: { reasoning: { standard: 'high', heavy: 'max' } },
         antigravity: { reasoning: { light: 'low', heavy: 'high' } },
+        mammouth: { reasoning: { light: 'minimal', heavy: 'max' } },
       },
     }
 
@@ -153,12 +200,14 @@ describe('PolicySchema', () => {
     expect(policy.workers.codex.reasoning).toEqual({ light: 'minimal', heavy: 'xhigh' })
     expect(policy.workers.claude.reasoning).toEqual({ standard: 'high', heavy: 'max' })
     expect(policy.workers.antigravity.reasoning).toEqual({ light: 'low', heavy: 'high' })
+    expect(policy.workers.mammouth.reasoning).toEqual({ light: 'minimal', heavy: 'max' })
   })
 
   test.each([
     ['codex', 'max'],
     ['claude', 'minimal'],
     ['antigravity', 'xhigh'],
+    ['mammouth', 'xhigh'],
   ] as const)('rejects reasoning value %s does not support', (engine, reasoning) => {
     // Arrange
     const config = { workers: { [engine]: { reasoning } } }
@@ -172,7 +221,9 @@ describe('PolicySchema', () => {
 
   test('keeps scalar model defaults when per-tier models are omitted', () => {
     // Arrange
-    const config = { workers: { codex: {}, claude: {}, antigravity: {}, kimi: {} } }
+    const config = {
+      workers: { codex: {}, claude: {}, antigravity: {}, kimi: {}, mammouth: {} },
+    }
 
     // Act
     const policy = PolicySchema.parse(config)
@@ -184,6 +235,8 @@ describe('PolicySchema', () => {
     expect(policy.workers.antigravity.model).toBeUndefined()
     expect(policy.workers.kimi.models).toBeUndefined()
     expect(policy.workers.kimi.model).toBeUndefined()
+    expect(policy.workers.mammouth.models).toBeUndefined()
+    expect(policy.workers.mammouth.model).toBeUndefined()
     expect(policy.workers.claude.models).toBeUndefined()
     expect(policy.workers.claude.model).toBe('sonnet')
   })
@@ -197,6 +250,7 @@ describe('PolicySchema', () => {
     expect(policy.workers.claude.reasoning).toBeUndefined()
     expect(policy.workers.antigravity.reasoning).toBeUndefined()
     expect(policy.workers.kimi).not.toHaveProperty('reasoning')
+    expect(policy.workers.mammouth.reasoning).toBeUndefined()
   })
 
   test('exports the reasoning schema supported by each engine', () => {
@@ -216,6 +270,13 @@ describe('PolicySchema', () => {
     ])
     expect(ReasoningSchemaByEngine.antigravity.options).toEqual(['low', 'medium', 'high'])
     expect(ReasoningSchemaByEngine.kimi).toBeNull()
+    expect(ReasoningSchemaByEngine.mammouth.options).toEqual([
+      'minimal',
+      'low',
+      'medium',
+      'high',
+      'max',
+    ])
   })
 
   test('the committed policy.example.yaml validates and matches the defaults exactly', async () => {

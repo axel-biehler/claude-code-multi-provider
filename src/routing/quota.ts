@@ -20,7 +20,7 @@ export interface LedgerState {
 
 // Runtime mirror of EngineName/FailureKind — zod needs literals the type system can't supply.
 const attemptSchema = z.object({
-  engine: z.enum(['codex', 'claude', 'antigravity', 'kimi']),
+  engine: z.enum(['codex', 'claude', 'antigravity', 'kimi', 'mammouth']),
   at: z.number().finite(),
   durationMs: z.number().finite(),
   outcome: z.enum(['ok', 'quota', 'auth', 'other']),
@@ -33,6 +33,7 @@ const persistedLedgerSchema = z.object({
     claude: z.number().finite().optional(),
     antigravity: z.number().finite().optional(),
     kimi: z.number().finite().optional(),
+    mammouth: z.number().finite().optional(),
   }),
 })
 

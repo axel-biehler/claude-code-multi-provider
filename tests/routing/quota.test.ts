@@ -35,12 +35,14 @@ describe('QuotaLedger', () => {
     const claudeHeadroom = ledger.hasHeadroom('claude', QUOTA)
     const antigravityHeadroom = ledger.hasHeadroom('antigravity', QUOTA)
     const kimiHeadroom = ledger.hasHeadroom('kimi', QUOTA)
+    const mammouthHeadroom = ledger.hasHeadroom('mammouth', QUOTA)
 
     // Assert
     expect(codexHeadroom).toBe(true)
     expect(claudeHeadroom).toBe(true)
     expect(antigravityHeadroom).toBe(true)
     expect(kimiHeadroom).toBe(true)
+    expect(mammouthHeadroom).toBe(true)
   })
 
   test('counts only ok and other outcomes toward caps, not quota or auth attempts', async () => {
@@ -154,19 +156,51 @@ describe('QuotaLedger', () => {
     await original.record({ engine: 'claude', durationMs: 800, outcome: 'other' })
     await original.record({ engine: 'antigravity', durationMs: 600, outcome: 'ok' })
     await original.record({ engine: 'kimi', durationMs: 400, outcome: 'other' })
+    await original.record({ engine: 'mammouth', durationMs: 500, outcome: 'ok' })
     await original.markExhausted('codex', 45)
     await original.markExhausted('antigravity', 30)
     await original.markExhausted('kimi', 15)
+    await original.markExhausted('mammouth', 15)
 
     // Act
     const reloaded = await QuotaLedger.load(repoRoot, now)
 
     // Assert
     expect(reloaded.snapshot()).toEqual(original.snapshot())
-    expect(reloaded.snapshot().attempts).toHaveLength(4)
+    expect(reloaded.snapshot().attempts).toHaveLength(5)
     expect(reloaded.snapshot().exhaustedUntil.codex).toBe(t + 45 * 60_000)
     expect(reloaded.snapshot().exhaustedUntil.antigravity).toBe(t + 30 * 60_000)
     expect(reloaded.snapshot().exhaustedUntil.kimi).toBe(t + 15 * 60_000)
+    expect(reloaded.snapshot().exhaustedUntil.mammouth).toBe(t + 15 * 60_000)
+  })
+
+  test('loads a pre-existing ledger without a mammouth reset entry', async () => {
+    // Arrange
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await mkdir(join(repoRoot, '.delegate'), { recursive: true })
+    await writeFile(
+      join(repoRoot, '.delegate', 'quota-ledger.json'),
+      JSON.stringify({
+        attempts: [
+          { engine: 'codex', at: t, durationMs: 100, outcome: 'ok' },
+          { engine: 'antigravity', at: t, durationMs: 200, outcome: 'other' },
+        ],
+        exhaustedUntil: { codex: t + 60_000, claude: t + 120_000 },
+      }),
+      'utf8',
+    )
+
+    // Act
+    const ledger = await QuotaLedger.load(repoRoot, now)
+
+    // Assert
+    expect(ledger.snapshot().attempts).toHaveLength(2)
+    expect(ledger.snapshot().exhaustedUntil).toEqual({
+      codex: t + 60_000,
+      claude: t + 120_000,
+    })
+    expect(ledger.hasHeadroom('mammouth', QUOTA)).toBe(true)
+    expect(warn).not.toHaveBeenCalled()
   })
 
   test('load starts fresh without throwing when the ledger file is corrupt', async () => {
