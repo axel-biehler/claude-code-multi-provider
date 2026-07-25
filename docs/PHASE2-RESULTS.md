@@ -133,9 +133,10 @@ binary, so no Windows `.cmd`-shim concern):
 7. `~/.kimi-code/workspaces.json` is an agy-style workspace registry → `--add-dir` pins the
    worktree. No per-invocation MCP-disable flag (no `kimi mcp` subcommand in 0.29.1); same
    isolation posture as agy. `--skills-dir` exists as a future isolation lever.
-8. Pending (blocked on `kimi login` by the operator): live probe, worktree-containment check,
-   `buildWorkerEnv` auth confirmation, full `npm run e2e` with `chain: [kimi]`, and the
-   plugin release. Static `npm run preflight -- --no-probe` and `npm run e2e -- --list-only`
-   pass at rev d6cb0a1.
+8. Live-validated post-login (2026-07-25): `npm run preflight` probe **usable** through the
+   sanitized `buildWorkerEnv`; full `npm run e2e` with `chain: [kimi]` succeeded (33s job,
+   non-empty diff confined to the worktree — the agy escape mode did not occur). Login
+   populated the catalog: default `kimi-code/kimi-for-coding`, plus
+   `kimi-for-coding-highspeed`, `k3`, `k3-256k`.
 
 Design decision: default chain still [codex, claude]; kimi is opt-in via policy.yaml.
