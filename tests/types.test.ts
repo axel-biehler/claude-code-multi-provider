@@ -1,7 +1,14 @@
 import { describe, expect, test } from 'vitest'
 import { DelegateTaskSchema, DelegateTaskShape } from '../src/types'
+import type { EngineName } from '../src/types'
+
+const ENGINE_NAMES = ['codex', 'claude', 'antigravity', 'kimi'] as const satisfies readonly EngineName[]
 
 describe('DelegateTaskSchema', () => {
+  test('lists every supported engine name', () => {
+    expect(ENGINE_NAMES).toEqual(['codex', 'claude', 'antigravity', 'kimi'])
+  })
+
   test.each(['light', 'standard', 'heavy'] as const)('accepts %s effort', (effort) => {
     // Arrange
     const input = { objective: 'Implement the task', effort }

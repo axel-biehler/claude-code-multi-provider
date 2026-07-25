@@ -1,5 +1,10 @@
 import { execFile } from 'node:child_process'
-import { cliInvocation, describeCli, resolveCodexCli } from '../engines/shared/cli-command'
+import {
+  cliInvocation,
+  describeCli,
+  resolveCodexCli,
+  resolveKimiBin,
+} from '../engines/shared/cli-command'
 import type { CliCommand } from '../engines/shared/cli-command'
 import type { EngineName } from '../types'
 
@@ -141,26 +146,51 @@ export async function detectAntigravity(): Promise<ProviderStaticDetection> {
   }
 }
 
+export async function detectKimi(): Promise<ProviderStaticDetection> {
+  const result = await run(await resolveKimiBin(), ['--version'])
+  const missingDetail =
+    'kimi CLI not found — install Kimi Code CLI (https://code.kimi.com) and run: kimi login'
+  if (result.spawnErrorCode !== undefined || result.exitCode !== 0) {
+    return {
+      engine: 'kimi',
+      available: false,
+      detail: missingDetail,
+      reports: [{ status: 'fail', message: missingDetail }],
+    }
+  }
+
+  const version = firstLine(result.stdout)
+  return {
+    engine: 'kimi',
+    available: true,
+    detail: `binary: ${version}; authentication is verified when the first delegated job runs`,
+    reports: [{ status: 'ok', message: `kimi binary: ${version}` }],
+  }
+}
+
 export function detectAuthenticatedProvider(
   engine: EngineName,
   repoRoot: string,
 ): Promise<ProviderStaticDetection> {
   if (engine === 'codex') return detectCodex(repoRoot)
   if (engine === 'antigravity') return detectAntigravity()
+  if (engine === 'kimi') return detectKimi()
   return detectClaude()
 }
 
 export async function detectAuthenticatedProviders(
   repoRoot: string,
 ): Promise<Record<EngineName, ProviderDetection>> {
-  const [codex, claude, antigravity] = await Promise.all([
+  const [codex, claude, antigravity, kimi] = await Promise.all([
     detectAuthenticatedProvider('codex', repoRoot),
     detectAuthenticatedProvider('claude', repoRoot),
     detectAuthenticatedProvider('antigravity', repoRoot),
+    detectAuthenticatedProvider('kimi', repoRoot),
   ])
   return {
     codex: { available: codex.available, detail: codex.detail },
     claude: { available: claude.available, detail: claude.detail },
     antigravity: { available: antigravity.available, detail: antigravity.detail },
+    kimi: { available: kimi.available, detail: kimi.detail },
   }
 }

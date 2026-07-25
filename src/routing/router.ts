@@ -17,7 +17,10 @@ export function resolveWorkerReasoning(
   engine: EngineName,
   effort?: Effort,
 ): string | undefined {
-  const reasoning = policy.workers[engine].reasoning
+  const worker = policy.workers[engine]
+  // The kimi worker intentionally has no reasoning property because its CLI exposes no such flag.
+  if (!('reasoning' in worker)) return undefined
+  const reasoning = worker.reasoning
   if (typeof reasoning === 'string') return reasoning
   return reasoning?.[effort ?? 'standard']
 }

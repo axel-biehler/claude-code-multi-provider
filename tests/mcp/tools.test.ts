@@ -88,6 +88,11 @@ describe('configure_delegation logic', () => {
       models: [{ id: 'gemini-3.6-flash-high', recommended: true }],
       source: 'cli',
     },
+    kimi: {
+      models: [{ id: 'kimi-for-coding', recommended: true }],
+      source: 'catalog',
+      defaultModel: 'kimi-for-coding',
+    },
   } as const
 
   afterEach(async () => {
@@ -102,12 +107,14 @@ describe('configure_delegation logic', () => {
       codex: { available: true, detail: 'binary: /opt/local/bin/codex' },
       claude: { available: false, detail: 'auth: missing credentials' },
       antigravity: { available: true, detail: 'binary: /usr/local/bin/agy' },
+      kimi: { available: true, detail: 'binary: /opt/kimi' },
     }
     const policy = PolicySchema.parse({
       chain: ['codex', 'antigravity'],
       workers: {
         claude: { model: 'opus' },
         antigravity: { model: 'gemini-3.5-flash-high' },
+        kimi: { model: 'kimi-for-coding', models: { heavy: 'kimi-heavy' } },
       },
     })
 
@@ -141,10 +148,22 @@ describe('configure_delegation logic', () => {
           models: [{ id: 'gemini-3.6-flash-high', recommended: true }],
           modelsSource: 'cli',
         },
+        kimi: {
+          available: true,
+          detail: 'binary: /opt/kimi',
+          models: [{ id: 'kimi-for-coding', recommended: true }],
+          modelsSource: 'catalog',
+          defaultModel: 'kimi-for-coding',
+        },
       },
       currentPolicy: {
         chain: ['codex', 'antigravity'],
-        models: { claude: 'opus', antigravity: 'gemini-3.5-flash-high' },
+        models: {
+          claude: 'opus',
+          antigravity: 'gemini-3.5-flash-high',
+          kimi: 'kimi-for-coding',
+        },
+        modelTiers: { kimi: { heavy: 'kimi-heavy' } },
       },
     })
     expect(payload.providers.antigravity).not.toHaveProperty('defaultModel')
@@ -157,6 +176,7 @@ describe('configure_delegation logic', () => {
       codex: { available: true, detail: 'codex detail' },
       claude: { available: false, detail: 'claude detail' },
       antigravity: { available: false, detail: 'antigravity detail' },
+      kimi: { available: false, detail: 'kimi detail' },
     }
 
     // Act
@@ -177,12 +197,14 @@ describe('configure_delegation logic', () => {
       codex: { available: true, detail: 'authenticated' },
       claude: { available: true, detail: 'authenticated' },
       antigravity: { available: true, detail: 'authenticated' },
+      kimi: { available: true, detail: 'authenticated' },
     }
     const policy = PolicySchema.parse({
       workers: {
         codex: { models: { light: 'small', heavy: 'big' } },
         claude: { models: { standard: 'medium' } },
         antigravity: { models: { heavy: 'gemini-heavy' } },
+        kimi: { models: { light: 'kimi-light' } },
       },
     })
 
@@ -198,6 +220,7 @@ describe('configure_delegation logic', () => {
       codex: { light: 'small', heavy: 'big' },
       claude: { standard: 'medium' },
       antigravity: { heavy: 'gemini-heavy' },
+      kimi: { light: 'kimi-light' },
     })
   })
 
@@ -207,6 +230,7 @@ describe('configure_delegation logic', () => {
       codex: { available: true, detail: 'authenticated' },
       claude: { available: true, detail: 'authenticated' },
       antigravity: { available: true, detail: 'authenticated' },
+      kimi: { available: true, detail: 'authenticated' },
     }
     const policy = PolicySchema.parse({
       workers: {
@@ -233,6 +257,7 @@ describe('configure_delegation logic', () => {
     ['a scalar model', { codex: 'gpt-x' }],
     ['a tier model map', { claude: { light: 'small', heavy: 'big' } }],
     ['an antigravity model', { antigravity: 'gemini-3.5-flash-high' }],
+    ['a kimi model', { kimi: 'kimi-for-coding' }],
   ])('accepts %s in write input', (_label, models) => {
     expect(
       parseConfigureDelegationWriteInput({ action: 'write', chain: ['codex'], models }),
@@ -369,6 +394,25 @@ describe('configure_delegation logic', () => {
         reasoning: { codex: 'max' },
       }),
     ).rejects.toThrow('Invalid')
+  })
+
+  test('rejects kimi reasoning before writing the policy file', async () => {
+    // Arrange
+    const repoRoot = await mkdtemp(join(tmpdir(), 'delegate-mcp-tools-'))
+    temporaryRoots.push(repoRoot)
+    const policyPath = join(repoRoot, 'policy.yaml')
+    const original = 'chain: [codex]\n'
+    await writeFile(policyPath, original, 'utf8')
+
+    // Act + Assert
+    await expect(
+      writeDelegationPolicy(repoRoot, {
+        action: 'write',
+        chain: ['kimi'],
+        reasoning: { kimi: 'high' },
+      }),
+    ).rejects.toThrow('kimi does not support reasoning configuration')
+    await expect(readFile(policyPath, 'utf8')).resolves.toBe(original)
   })
 })
 

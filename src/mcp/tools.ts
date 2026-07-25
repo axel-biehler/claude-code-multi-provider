@@ -84,12 +84,14 @@ function summarizePolicy(policy: Policy): PolicySummary {
   if (policy.workers.antigravity.model !== undefined) {
     models.antigravity = policy.workers.antigravity.model
   }
+  if (policy.workers.kimi.model !== undefined) models.kimi = policy.workers.kimi.model
   const modelTiers: Partial<Record<EngineName, Partial<Record<Effort, string>>>> = {}
   if (policy.workers.codex.models !== undefined) modelTiers.codex = policy.workers.codex.models
   if (policy.workers.claude.models !== undefined) modelTiers.claude = policy.workers.claude.models
   if (policy.workers.antigravity.models !== undefined) {
     modelTiers.antigravity = policy.workers.antigravity.models
   }
+  if (policy.workers.kimi.models !== undefined) modelTiers.kimi = policy.workers.kimi.models
   const reasoning: Partial<
     Record<EngineName, string | Partial<Record<Effort, string>>>
   > = {}
@@ -146,6 +148,15 @@ export function buildConfigureDelegationDetectPayload(
         ...(models.antigravity.defaultModel === undefined
           ? {}
           : { defaultModel: models.antigravity.defaultModel }),
+      },
+      kimi: {
+        available: providers.kimi.available,
+        detail: providers.kimi.detail,
+        models: models.kimi.models,
+        modelsSource: models.kimi.source,
+        ...(models.kimi.defaultModel === undefined
+          ? {}
+          : { defaultModel: models.kimi.defaultModel }),
       },
     },
     currentPolicy: currentPolicy === null ? null : summarizePolicy(currentPolicy),

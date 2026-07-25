@@ -119,6 +119,32 @@ describe('executeJob', () => {
     expect(reasoning).toBe('xhigh')
   })
 
+  test('dispatches kimi to the injected worker without reasoning', async () => {
+    // Arrange
+    const policy = PolicySchema.parse({
+      chain: ['kimi'],
+      workers: { kimi: { models: { heavy: 'kimi-heavy' } } },
+    })
+    const ledger = await QuotaLedger.load(repoRoot)
+    const requests: Array<{ engine: EngineName; model?: string; reasoning?: string }> = []
+    const runner: WorkerRunner = async (req) => {
+      requests.push({ engine: req.engine, model: req.model, reasoning: req.reasoning })
+      return { exitCode: 0, lastMessage: 'done', durationMs: 1 }
+    }
+
+    // Act
+    await executeJob(
+      { repoRoot, policy, ledger, runWorker: runner },
+      'job-kimi-dispatch',
+      { objective: 'add a generated file', effort: 'heavy' },
+    )
+
+    // Assert
+    expect(requests).toEqual([
+      { engine: 'kimi', model: 'kimi-heavy', reasoning: undefined },
+    ])
+  })
+
   test('escalates an implicit revision effort one tier above its parent', async () => {
     // Arrange
     const policy = PolicySchema.parse({
@@ -607,6 +633,56 @@ describe('buildDefaultWorkerRunner', () => {
       expect(outcome.lastMessage).toContain('--print-timeout 123s')
       expect(outcome.lastMessage).toContain('--model=gemini-test')
       expect(outcome.lastMessage).toContain('--effort=high')
+    } finally {
+      if (originalHome === undefined) delete process.env.HOME
+      else process.env.HOME = originalHome
+      if (originalPath === undefined) delete process.env.PATH
+      else process.env.PATH = originalPath
+      await rm(repoRoot, { recursive: true, force: true })
+    }
+  })
+
+  test('runs kimi with the official user-local binary and no reasoning flags', async () => {
+    // Arrange
+    const repoRoot = await mkdtemp(join(tmpdir(), 'delegate-kimi-runner-'))
+    const fakeHome = join(repoRoot, 'home')
+    const kimiBin = join(fakeHome, '.kimi-code', 'bin', 'kimi')
+    const paths = buildJobPaths(repoRoot, 'job-kimi-runner')
+    const originalHome = process.env.HOME
+    const originalPath = process.env.PATH
+    await mkdir(join(fakeHome, '.kimi-code', 'bin'), { recursive: true })
+    await mkdir(paths.jobDir, { recursive: true })
+    await writeFile(
+      kimiBin,
+      '#!/bin/sh\nprintf \'{"role":"assistant","content":"%s"}\\n\' "$0|$*"\n',
+      'utf8',
+    )
+    await chmod(kimiBin, 0o755)
+    process.env.HOME = fakeHome
+    process.env.PATH = '/usr/bin:/bin'
+
+    try {
+      // Act
+      const outcome = await buildDefaultWorkerRunner()({
+        engine: 'kimi',
+        model: 'kimi-test',
+        repoRoot,
+        worktreePath: repoRoot,
+        prompt: 'Reply with exactly: ok',
+        paths,
+        policy: PolicySchema.parse({
+          workers: { kimi: { timeoutMs: 123_000 } },
+        }),
+      })
+
+      // Assert
+      expect(outcome.exitCode).toBe(0)
+      expect(outcome.lastMessage).toContain(`${kimiBin}|-p Reply with exactly: ok`)
+      expect(outcome.lastMessage).toContain('--add-dir')
+      expect(outcome.lastMessage).toContain('--model=kimi-test')
+      expect(outcome.lastMessage).not.toContain('--effort')
+      expect(outcome.lastMessage).not.toContain('--yolo')
+      expect(outcome.lastMessage).not.toContain('--auto')
     } finally {
       if (originalHome === undefined) delete process.env.HOME
       else process.env.HOME = originalHome

@@ -7,6 +7,7 @@ import {
   listProviderModels,
   parseAgyModelsOutput,
   parseCodexConfigModel,
+  parseKimiConfigModel,
 } from '../../src/config/models'
 
 async function writeExecutable(path: string, body: string): Promise<void> {
@@ -138,6 +139,41 @@ model = "must-not-match"
     })
   })
 
+  test('extracts only a top-level kimi default_model assignment', () => {
+    const model = parseKimiConfigModel(`
+default_model = "kimi-for-coding"
+
+[models.extra]
+default_model = "must-not-match"
+`)
+
+    expect(model).toBe('kimi-for-coding')
+  })
+
+  test('returns an empty kimi catalog when its config file is missing', async () => {
+    const provider = await listProviderModels('kimi', temporaryRoot)
+
+    expect(provider).toEqual({ models: [], source: 'catalog' })
+  })
+
+  test('uses the locally configured kimi default model as the recommendation', async () => {
+    const configDirectory = join(temporaryRoot, '.kimi-code')
+    await mkdir(configDirectory)
+    await writeFile(
+      join(configDirectory, 'config.toml'),
+      'default_model = "kimi-for-coding"\n[models.extra]\ndefault_model = "must-not-match"\n',
+      'utf8',
+    )
+
+    const provider = await listProviderModels('kimi', temporaryRoot)
+
+    expect(provider).toEqual({
+      models: [{ id: 'kimi-for-coding', recommended: true }],
+      source: 'catalog',
+      defaultModel: 'kimi-for-coding',
+    })
+  })
+
   test('returns the stable Claude aliases with sonnet recommended', async () => {
     const provider = await listProviderModels('claude', temporaryRoot)
 
@@ -158,9 +194,10 @@ model = "must-not-match"
 
     const providers = await listAllProviderModels(temporaryRoot)
 
-    expect(Object.keys(providers).sort()).toEqual(['antigravity', 'claude', 'codex'])
+    expect(Object.keys(providers).sort()).toEqual(['antigravity', 'claude', 'codex', 'kimi'])
     expect(providers.antigravity.source).toBe('catalog')
     expect(providers.codex.models).toEqual([])
+    expect(providers.kimi.models).toEqual([])
     expect(providers.claude.defaultModel).toBe('sonnet')
   })
 })

@@ -45,6 +45,10 @@ function codexFallback(): ProviderModels {
   return { models: [], source: 'catalog' }
 }
 
+function kimiFallback(): ProviderModels {
+  return { models: [], source: 'catalog' }
+}
+
 function run(command: string, args: readonly string[]): Promise<RunResult> {
   return new Promise((resolvePromise) => {
     try {
@@ -90,6 +94,17 @@ export function parseCodexConfigModel(toml: string): string | undefined {
   return undefined
 }
 
+export function parseKimiConfigModel(toml: string): string | undefined {
+  // Only one top-level scalar is needed, so a line scan avoids a TOML dependency.
+  for (const line of toml.split(/\r?\n/)) {
+    if (/^\s*\[/.test(line)) return undefined
+
+    const match = /^\s*default_model\s*=\s*"([^"]+)"\s*(?:#.*)?$/.exec(line)
+    if (match !== null) return match[1]
+  }
+  return undefined
+}
+
 async function listAntigravityModels(): Promise<ProviderModels> {
   const result = await run('agy', ['models'])
   if (result.exitCode !== 0) return antigravityFallback()
@@ -113,6 +128,23 @@ async function listCodexModels(): Promise<ProviderModels> {
   }
 }
 
+export async function listKimiModels(): Promise<ProviderModels> {
+  let config: string
+  try {
+    config = await readFile(join(homedir(), '.kimi-code', 'config.toml'), 'utf8')
+  } catch {
+    return kimiFallback()
+  }
+
+  const model = parseKimiConfigModel(config)
+  if (model === undefined) return kimiFallback()
+  return {
+    models: [{ id: model, recommended: true }],
+    source: 'catalog',
+    defaultModel: model,
+  }
+}
+
 async function listClaudeModels(): Promise<ProviderModels> {
   return {
     models: CLAUDE_CATALOG,
@@ -127,16 +159,18 @@ export function listProviderModels(
 ): Promise<ProviderModels> {
   if (engine === 'antigravity') return listAntigravityModels()
   if (engine === 'codex') return listCodexModels()
+  if (engine === 'kimi') return listKimiModels()
   return listClaudeModels()
 }
 
 export async function listAllProviderModels(
   repoRoot: string,
 ): Promise<Record<EngineName, ProviderModels>> {
-  const [codex, claude, antigravity] = await Promise.all([
+  const [codex, claude, antigravity, kimi] = await Promise.all([
     listProviderModels('codex', repoRoot).catch(codexFallback),
     listProviderModels('claude', repoRoot).catch(listClaudeModels),
     listProviderModels('antigravity', repoRoot).catch(antigravityFallback),
+    listProviderModels('kimi', repoRoot).catch(kimiFallback),
   ])
-  return { codex, claude, antigravity }
+  return { codex, claude, antigravity, kimi }
 }

@@ -4,7 +4,12 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { parse } from 'yaml'
-import { DEFAULT_POLICY, PolicySchema, loadPolicy } from '../../src/routing/policy'
+import {
+  DEFAULT_POLICY,
+  PolicySchema,
+  ReasoningSchemaByEngine,
+  loadPolicy,
+} from '../../src/routing/policy'
 
 const EXAMPLE_POLICY_PATH = fileURLToPath(new URL('../../policy.example.yaml', import.meta.url))
 
@@ -23,10 +28,13 @@ describe('PolicySchema', () => {
     expect(policy.workers.codex.model).toBeUndefined()
     expect(policy.workers.antigravity.timeoutMs).toBe(600_000)
     expect(policy.workers.antigravity.model).toBeUndefined()
+    expect(policy.workers.kimi.timeoutMs).toBe(600_000)
+    expect(policy.workers.kimi.model).toBeUndefined()
     expect(policy.workers.claude.model).toBe('sonnet')
     expect(policy.workers.claude.maxBudgetUsd).toBe(2)
     expect(policy.quotas.codex.maxJobsPer5h).toBe(10)
     expect(policy.quotas.antigravity.maxJobsPer5h).toBe(10)
+    expect(policy.quotas.kimi.maxJobsPer5h).toBe(10)
     expect(policy.quotas.claude.maxJobsPerWeek).toBe(50)
     expect(policy.retention).toEqual({ maxAgeDays: 7, keepLast: 10 })
   })
@@ -60,12 +68,38 @@ describe('PolicySchema', () => {
     })
   })
 
+  test('accepts kimi in the chain with optional per-tier models and no reasoning field', () => {
+    // Arrange
+    const config = {
+      chain: ['kimi'],
+      workers: {
+        kimi: {
+          model: 'kimi-default',
+          models: { light: 'kimi-light', heavy: 'kimi-heavy' },
+        },
+      },
+    }
+
+    // Act
+    const policy = PolicySchema.parse(config)
+
+    // Assert
+    expect(policy.chain).toEqual(['kimi'])
+    expect(policy.workers.kimi).toEqual({
+      model: 'kimi-default',
+      models: { light: 'kimi-light', heavy: 'kimi-heavy' },
+      timeoutMs: 600_000,
+    })
+    expect(policy.workers.kimi).not.toHaveProperty('reasoning')
+  })
+
   test('accepts per-tier worker models', () => {
     // Arrange
     const config = {
       workers: {
         codex: { models: { light: 'gpt-light', heavy: 'gpt-heavy' } },
         antigravity: { models: { light: 'gemini-light', heavy: 'gemini-heavy' } },
+        kimi: { models: { standard: 'kimi-standard' } },
         claude: { models: { standard: 'claude-standard' } },
       },
     }
@@ -79,6 +113,7 @@ describe('PolicySchema', () => {
       light: 'gemini-light',
       heavy: 'gemini-heavy',
     })
+    expect(policy.workers.kimi.models).toEqual({ standard: 'kimi-standard' })
     expect(policy.workers.claude.models).toEqual({ standard: 'claude-standard' })
   })
 
@@ -137,7 +172,7 @@ describe('PolicySchema', () => {
 
   test('keeps scalar model defaults when per-tier models are omitted', () => {
     // Arrange
-    const config = { workers: { codex: {}, claude: {}, antigravity: {} } }
+    const config = { workers: { codex: {}, claude: {}, antigravity: {}, kimi: {} } }
 
     // Act
     const policy = PolicySchema.parse(config)
@@ -147,6 +182,8 @@ describe('PolicySchema', () => {
     expect(policy.workers.codex.model).toBeUndefined()
     expect(policy.workers.antigravity.models).toBeUndefined()
     expect(policy.workers.antigravity.model).toBeUndefined()
+    expect(policy.workers.kimi.models).toBeUndefined()
+    expect(policy.workers.kimi.model).toBeUndefined()
     expect(policy.workers.claude.models).toBeUndefined()
     expect(policy.workers.claude.model).toBe('sonnet')
   })
@@ -159,6 +196,26 @@ describe('PolicySchema', () => {
     expect(policy.workers.codex.reasoning).toBeUndefined()
     expect(policy.workers.claude.reasoning).toBeUndefined()
     expect(policy.workers.antigravity.reasoning).toBeUndefined()
+    expect(policy.workers.kimi).not.toHaveProperty('reasoning')
+  })
+
+  test('exports the reasoning schema supported by each engine', () => {
+    expect(ReasoningSchemaByEngine.codex.options).toEqual([
+      'minimal',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ])
+    expect(ReasoningSchemaByEngine.claude.options).toEqual([
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+      'max',
+    ])
+    expect(ReasoningSchemaByEngine.antigravity.options).toEqual(['low', 'medium', 'high'])
+    expect(ReasoningSchemaByEngine.kimi).toBeNull()
   })
 
   test('the committed policy.example.yaml validates and matches the defaults exactly', async () => {

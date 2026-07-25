@@ -25,17 +25,22 @@ async function writeBundledCodex(repoRoot: string, body: string): Promise<string
 describe('provider authentication detection', () => {
   let repoRoot: string
   let pathDirectory: string
+  let originalHome: string | undefined
   let originalPath: string | undefined
 
   beforeEach(async () => {
     repoRoot = await mkdtemp(join(tmpdir(), 'delegate-detect-'))
     pathDirectory = join(repoRoot, 'path-bin')
     await mkdir(pathDirectory)
+    originalHome = process.env.HOME
     originalPath = process.env.PATH
+    process.env.HOME = repoRoot
     process.env.PATH = [pathDirectory, '/usr/bin', '/bin'].join(delimiter)
   })
 
   afterEach(async () => {
+    if (originalHome === undefined) delete process.env.HOME
+    else process.env.HOME = originalHome
     if (originalPath === undefined) delete process.env.PATH
     else process.env.PATH = originalPath
     await rm(repoRoot, { recursive: true, force: true })
@@ -56,13 +61,17 @@ describe('provider authentication detection', () => {
       join(pathDirectory, 'agy'),
       '[ "$1" = "--version" ] && printf "Antigravity 2.3.4\\n"',
     )
+    await writeExecutable(
+      join(pathDirectory, 'kimi'),
+      '[ "$1" = "--version" ] && printf "Kimi Code 0.29.1\\n"',
+    )
     const stdout = vi.spyOn(console, 'log').mockImplementation(() => undefined)
 
     // Act
     const detections = await detectAuthenticatedProviders(repoRoot)
 
     // Assert
-    expect(Object.keys(detections).sort()).toEqual(['antigravity', 'claude', 'codex'])
+    expect(Object.keys(detections).sort()).toEqual(['antigravity', 'claude', 'codex', 'kimi'])
     expect(detections.codex).toEqual({
       available: true,
       detail: `binary: ${process.execPath} ${bundledCodex}`,
@@ -75,6 +84,11 @@ describe('provider authentication detection', () => {
     expect(detections.antigravity.available).toBe(true)
     expect(detections.antigravity.detail).toContain('Antigravity 2.3.4')
     expect(detections.antigravity.detail).toContain(
+      'authentication is verified when the first delegated job runs',
+    )
+    expect(detections.kimi.available).toBe(true)
+    expect(detections.kimi.detail).toContain('Kimi Code 0.29.1')
+    expect(detections.kimi.detail).toContain(
       'authentication is verified when the first delegated job runs',
     )
     expect(stdout).not.toHaveBeenCalled()
@@ -104,6 +118,7 @@ describe('provider authentication detection', () => {
     const codex = await detectAuthenticatedProvider('codex', repoRoot)
     const claude = await detectAuthenticatedProvider('claude', repoRoot)
     const antigravity = await detectAuthenticatedProvider('antigravity', repoRoot)
+    const kimi = await detectAuthenticatedProvider('kimi', repoRoot)
 
     // Assert
     expect(codex.available).toBe(false)
@@ -130,6 +145,17 @@ describe('provider authentication detection', () => {
       {
         status: 'fail',
         message: 'agy CLI not found on PATH — install the Antigravity CLI',
+      },
+    ])
+    expect(kimi.available).toBe(false)
+    expect(kimi.detail).toBe(
+      'kimi CLI not found — install Kimi Code CLI (https://code.kimi.com) and run: kimi login',
+    )
+    expect(kimi.reports).toEqual([
+      {
+        status: 'fail',
+        message:
+          'kimi CLI not found — install Kimi Code CLI (https://code.kimi.com) and run: kimi login',
       },
     ])
   })

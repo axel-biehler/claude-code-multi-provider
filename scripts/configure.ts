@@ -8,30 +8,41 @@ import { listAllProviderModels } from '../src/config/models'
 import type { ModelOption, ProviderModels } from '../src/config/models'
 import { writePolicyFile } from '../src/config/policy-writer'
 import type { PolicyPatch } from '../src/config/policy-writer'
-import {
-  AntigravityReasoningSchema,
-  ClaudeReasoningSchema,
-  CodexReasoningSchema,
-} from '../src/routing/policy'
+import { ReasoningSchemaByEngine } from '../src/routing/policy'
 import type { Effort, EngineName } from '../src/types'
 
-const PROVIDERS = ['codex', 'claude', 'antigravity'] as const satisfies readonly EngineName[]
+const PROVIDERS = ['codex', 'claude', 'antigravity', 'kimi'] as const satisfies readonly EngineName[]
 const EFFORT_TIERS = ['light', 'standard', 'heavy'] as const satisfies readonly Effort[]
 
-const REASONING_VALUES: Record<EngineName, readonly string[]> = {
-  codex: CodexReasoningSchema.options,
-  claude: ClaudeReasoningSchema.options,
-  antigravity: AntigravityReasoningSchema.options,
+function reasoningValuesForEngine(engine: EngineName): readonly string[] {
+  const entry = ReasoningSchemaByEngine[engine]
+  return entry === null ? [] : entry.options
 }
 
-const RECOMMENDED_REASONING: Record<EngineName, Record<Effort, string>> = {
+const REASONING_VALUES: Record<EngineName, readonly string[]> = {
+  codex: reasoningValuesForEngine('codex'),
+  claude: reasoningValuesForEngine('claude'),
+  antigravity: reasoningValuesForEngine('antigravity'),
+  kimi: reasoningValuesForEngine('kimi'),
+}
+
+const RECOMMENDED_REASONING: Partial<Record<EngineName, Record<Effort, string>>> = {
   codex: { light: 'low', standard: 'medium', heavy: 'xhigh' },
   claude: { light: 'low', standard: 'medium', heavy: 'max' },
   antigravity: { light: 'low', standard: 'medium', heavy: 'high' },
 }
 
 function isEngineName(value: string): value is EngineName {
-  return value === 'codex' || value === 'claude' || value === 'antigravity'
+  return (
+    value === 'codex' ||
+    value === 'claude' ||
+    value === 'antigravity' ||
+    value === 'kimi'
+  )
+}
+
+export function supportsReasoningConfiguration(engine: EngineName): boolean {
+  return REASONING_VALUES[engine].length > 0
 }
 
 export function parseProviderSelection(
@@ -203,6 +214,7 @@ async function main(): Promise<void> {
     console.log('Run npm run preflight for details, then log in:')
     console.log('  Codex:  npx codex login')
     console.log('  Claude: claude setup-token')
+    console.log('  Kimi:   kimi login')
     await useDefaultPolicy(repoRoot)
     return
   }
@@ -273,7 +285,9 @@ async function main(): Promise<void> {
     )
     if (['y', 'yes'].includes(configureReasoning.trim().toLowerCase())) {
       for (const provider of chain) {
+        if (REASONING_VALUES[provider].length === 0) continue
         const recommended = RECOMMENDED_REASONING[provider]
+        if (recommended === undefined) continue
         console.log(
           `${provider} reasoning values: ${REASONING_VALUES[provider].join(', ')} ` +
             `(recommended light=${recommended.light}, standard=${recommended.standard}, heavy=${recommended.heavy})`,

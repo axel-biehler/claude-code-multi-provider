@@ -5,7 +5,7 @@
 
 # Engine chain priority order: the first entry receives every delegated job;
 # later entries are automatic fallbacks on quota exhaustion or auth failure.
-# Antigravity is available for inclusion anywhere in this chain.
+# Antigravity and Kimi are available for inclusion anywhere in this chain.
 chain:
   - codex
   - claude
@@ -71,6 +71,16 @@ workers:
     #   heavy: high
     # Scalar alternative: reasoning: high
     timeoutMs: 600000
+  kimi:
+    # Optional; falls back to the Kimi CLI's login-populated default.
+    # model: kimi-model-id
+    # Optional per-effort tiers (see the codex note above).
+    # models:
+    #   light: kimi-light-model-id
+    #   standard: kimi-standard-model-id
+    #   heavy: kimi-heavy-model-id
+    # kimi has no reasoning flag — effort tiers use the models map only.
+    timeoutMs: 600000
 
 # Per-engine quota budgets. Hitting a budget marks the engine exhausted for
 # the cooldown window; the router skips it and tries the next engine.
@@ -84,6 +94,10 @@ quotas:
     maxJobsPerWeek: 50
     exhaustionCooldownMinutes: 60
   antigravity:
+    maxJobsPer5h: 10
+    maxJobsPerWeek: 50
+    exhaustionCooldownMinutes: 60
+  kimi:
     maxJobsPer5h: 10
     maxJobsPerWeek: 50
     exhaustionCooldownMinutes: 60

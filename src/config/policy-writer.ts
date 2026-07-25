@@ -1,7 +1,13 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { isScalar, parse, parseDocument, stringify } from 'yaml'
-import { DEFAULT_POLICY, EffortSchema, EngineNameSchema, PolicySchema } from '../routing/policy'
+import {
+  DEFAULT_POLICY,
+  EffortSchema,
+  EngineNameSchema,
+  PolicySchema,
+  ReasoningSchemaByEngine,
+} from '../routing/policy'
 import type { Policy } from '../routing/policy'
 import type { Effort, EngineName } from '../types'
 
@@ -16,6 +22,15 @@ export interface PolicyPatch {
 }
 
 export function renderPolicyYaml(current: string | null, patch: PolicyPatch): string {
+  // Engines such as kimi without a reasoning schema must fail before document mutation.
+  for (const [rawEngine, value] of Object.entries(patch.reasoning ?? {})) {
+    if (value === undefined) continue
+    const engine = EngineNameSchema.parse(rawEngine)
+    if (ReasoningSchemaByEngine[engine] === null) {
+      throw new Error(`${engine} does not support reasoning configuration`)
+    }
+  }
+
   const document = parseDocument(current ?? stringify(DEFAULT_POLICY))
   if (document.errors.length > 0) {
     throw new Error(`Invalid policy YAML: ${document.errors.map((error) => error.message).join('; ')}`)

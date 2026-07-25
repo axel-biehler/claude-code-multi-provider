@@ -12,6 +12,7 @@ import {
   parseProviderSelection,
   resolveModelAnswer,
   resolveReasoningAnswer,
+  supportsReasoningConfiguration,
 } from '../scripts/configure'
 
 describe('parseProviderSelection', () => {
@@ -25,10 +26,10 @@ describe('parseProviderSelection', () => {
 
   test('uses every available provider when the answer is blank', () => {
     // Act
-    const chain = parseProviderSelection('  ', ['claude', 'antigravity'])
+    const chain = parseProviderSelection('  ', ['claude', 'antigravity', 'kimi'])
 
     // Assert
-    expect(chain).toEqual(['claude', 'antigravity'])
+    expect(chain).toEqual(['claude', 'antigravity', 'kimi'])
   })
 
   test('rejects unavailable and duplicate providers', () => {
@@ -176,6 +177,11 @@ describe('resolveReasoningAnswer', () => {
 
   test('returns an empty string for a blank answer', () => {
     expect(resolveReasoningAnswer('   ', 'codex')).toBe('')
+  })
+
+  test('skips reasoning configuration for kimi', () => {
+    expect(supportsReasoningConfiguration('kimi')).toBe(false)
+    expect(supportsReasoningConfiguration('codex')).toBe(true)
   })
 
   test('throws for a value invalid for the given engine, listing the allowed set', () => {

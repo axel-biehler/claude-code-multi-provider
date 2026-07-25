@@ -7,7 +7,8 @@ import { promisify } from 'node:util'
 import { runAntigravity } from '../engines/antigravity'
 import { runClaude } from '../engines/claude'
 import { resolveCodexConfigOverrides, runCodex } from '../engines/codex'
-import { resolveCodexCli } from '../engines/shared/cli-command'
+import { runKimi } from '../engines/kimi'
+import { resolveCodexCli, resolveKimiBin } from '../engines/shared/cli-command'
 import type { CliCommand } from '../engines/shared/cli-command'
 import { buildPrompt } from '../engines/shared/prompt'
 import { collectDiff, createWorktree, removeWorktree } from '../git/worktree'
@@ -199,6 +200,16 @@ export function buildDefaultWorkerRunner(): WorkerRunner {
         timeoutMs: worker.timeoutMs,
         model: req.model,
         reasoning: req.reasoning,
+      })
+    }
+    if (req.engine === 'kimi') {
+      return runKimi({
+        kimiBin: await resolveKimiBin(),
+        worktreePath: req.worktreePath,
+        prompt: req.prompt,
+        paths: req.paths,
+        timeoutMs: req.policy.workers.kimi.timeoutMs,
+        model: req.model,
       })
     }
     const codexCli = await resolveCodexCli(req.repoRoot)

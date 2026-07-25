@@ -3,7 +3,8 @@ import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { detectAuthenticatedProvider } from '../src/config/detect'
 import { classifyAntigravityFailure, parseAntigravityJson } from '../src/engines/antigravity'
-import { cliInvocation } from '../src/engines/shared/cli-command'
+import { classifyKimiFailure, parseKimiStreamJson } from '../src/engines/kimi'
+import { cliInvocation, resolveKimiBin } from '../src/engines/shared/cli-command'
 import type { CliCommand } from '../src/engines/shared/cli-command'
 import { classifyClaudeFailure, parseClaudeJson } from '../src/engines/claude'
 import { classifyCodexFailure } from '../src/engines/codex'
@@ -21,6 +22,7 @@ const CLAUDE_PROBE_PROMPT = 'Reply with exactly: ok'
 const CLAUDE_PROBE_MODEL = 'sonnet'
 const ANTIGRAVITY_PROBE_PROMPT = 'Reply with exactly: ok'
 const ANTIGRAVITY_PROBE_MODEL = 'gemini-3.5-flash-low'
+const KIMI_PROBE_PROMPT = 'Reply with exactly: ok'
 // Measured floor: a minimal `claude -p` costs ~$0.41 just to boot (≈69k cache-creation
 // tokens of CLI system prompt), so the cap must sit well above it. Guard, not a target.
 const CLAUDE_PROBE_BUDGET_USD = '1'
@@ -328,6 +330,32 @@ async function probeAntigravity(reporter: Reporter): Promise<boolean> {
   return false
 }
 
+async function probeKimi(reporter: Reporter): Promise<boolean> {
+  const result = await run(
+    await resolveKimiBin(),
+    ['-p', KIMI_PROBE_PROMPT, '--output-format', 'stream-json'],
+    { timeoutMs: PROBE_TIMEOUT_MS, env: buildWorkerEnv() },
+  )
+  if (result.exitCode === 0 && parseKimiStreamJson(result.stdout).lastMessage !== null) {
+    reporter.ok('kimi probe: usable')
+    return true
+  }
+  const kind =
+    classifyKimiFailure({
+      exitCode: result.exitCode,
+      streamText: result.stdout,
+      stderrText: result.stderr,
+    }) ?? 'other'
+  const detail =
+    kind === 'quota'
+      ? QUOTA_VERDICT
+      : kind === 'auth'
+        ? 'not logged in — run: kimi login'
+        : describeOtherFailure(result)
+  reporter.fail(`kimi probe: ${detail}`)
+  return false
+}
+
 // Probing an engine whose static checks already failed would burn a real request on a
 // known-broken setup — null keeps the static verdict authoritative for it.
 async function runProbe(reporter: Reporter, outcome: StaticCheckOutcome): Promise<boolean | null> {
@@ -336,6 +364,7 @@ async function runProbe(reporter: Reporter, outcome: StaticCheckOutcome): Promis
     return probeCodex(reporter, outcome.codexCli ?? { command: 'codex', args: [] })
   }
   if (outcome.engine === 'antigravity') return probeAntigravity(reporter)
+  if (outcome.engine === 'kimi') return probeKimi(reporter)
   return probeClaude(reporter)
 }
 

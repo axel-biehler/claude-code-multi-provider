@@ -76,6 +76,21 @@ describe('resolveWorkerModel', () => {
     expect(tierModel).toBe('gemini-heavy')
     expect(fallbackModel).toBeUndefined()
   })
+
+  test('resolves kimi models with the same optional fallback as codex', () => {
+    // Arrange
+    const policy = PolicySchema.parse({
+      workers: { kimi: { model: 'kimi-default', models: { heavy: 'kimi-heavy' } } },
+    })
+
+    // Act
+    const tierModel = resolveWorkerModel(policy, 'kimi', 'heavy')
+    const fallbackModel = resolveWorkerModel(policy, 'kimi', 'light')
+
+    // Assert
+    expect(tierModel).toBe('kimi-heavy')
+    expect(fallbackModel).toBe('kimi-default')
+  })
 })
 
 describe('resolveWorkerReasoning', () => {
@@ -134,6 +149,18 @@ describe('resolveWorkerReasoning', () => {
     // Assert
     expect(reasoning).toBeUndefined()
   })
+
+  test('returns undefined for kimi at every effort tier', () => {
+    // Arrange
+    const policy = PolicySchema.parse({
+      workers: { kimi: { models: { heavy: 'kimi-heavy' } } },
+    })
+
+    // Act + Assert
+    expect(resolveWorkerReasoning(policy, 'kimi', 'light')).toBeUndefined()
+    expect(resolveWorkerReasoning(policy, 'kimi', 'standard')).toBeUndefined()
+    expect(resolveWorkerReasoning(policy, 'kimi', 'heavy')).toBeUndefined()
+  })
 })
 
 describe('selectEngine', () => {
@@ -186,6 +213,19 @@ describe('selectEngine', () => {
 
     // Assert
     expect(selected).toBe('antigravity')
+  })
+
+  test('routes through kimi when it is next in the configured chain', async () => {
+    // Arrange
+    const policy = PolicySchema.parse({ chain: ['codex', 'kimi', 'claude'] })
+    const ledger = await QuotaLedger.load(repoRoot, now)
+    await ledger.markExhausted('codex', 60)
+
+    // Act
+    const selected = selectEngine(policy, ledger)
+
+    // Assert
+    expect(selected).toBe('kimi')
   })
 
   test('falls through when ok-records consume the first engine 5h cap', async () => {

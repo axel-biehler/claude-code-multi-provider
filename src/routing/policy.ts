@@ -6,11 +6,17 @@ import type { QuotaConfig } from '../types'
 
 const POLICY_FILE_NAME = 'policy.yaml'
 
-export const EngineNameSchema = z.enum(['codex', 'claude', 'antigravity'])
+export const EngineNameSchema = z.enum(['codex', 'claude', 'antigravity', 'kimi'])
 export const EffortSchema = z.enum(['light', 'standard', 'heavy'])
 export const CodexReasoningSchema = z.enum(['minimal', 'low', 'medium', 'high', 'xhigh'])
 export const ClaudeReasoningSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max'])
 export const AntigravityReasoningSchema = z.enum(['low', 'medium', 'high'])
+export const ReasoningSchemaByEngine = {
+  codex: CodexReasoningSchema,
+  claude: ClaudeReasoningSchema,
+  antigravity: AntigravityReasoningSchema,
+  kimi: null,
+} as const
 
 // Model ids are handed to the worker CLI as `--model=<id>`; reject a leading '-' so a
 // crafted policy value can't be reinterpreted as a CLI flag (the adapters also use the
@@ -75,6 +81,14 @@ export const PolicySchema = z.object({
           timeoutMs: z.number().int().positive().default(600_000),
         })
         .default({}),
+      kimi: z
+        .object({
+          model: ModelIdSchema.optional(),
+          models: z.record(EffortSchema, ModelIdSchema).optional(),
+          // The Kimi CLI has no reasoning/effort flag; effort tiers use the models map only.
+          timeoutMs: z.number().int().positive().default(600_000),
+        })
+        .default({}),
     })
     .default({}),
   quotas: z
@@ -82,6 +96,7 @@ export const PolicySchema = z.object({
       codex: QuotaConfigSchema.default({}),
       claude: QuotaConfigSchema.default({}),
       antigravity: QuotaConfigSchema.default({}),
+      kimi: QuotaConfigSchema.default({}),
     })
     .default({}),
   retention: z

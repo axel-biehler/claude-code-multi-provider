@@ -1,4 +1,5 @@
 import { access } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 // A worker CLI invocation split into executable + leading args. Workers are spawned
@@ -33,5 +34,15 @@ export async function resolveCodexCli(repoRoot: string): Promise<CliCommand> {
     return { command: process.execPath, args: [jsEntry] }
   } catch {
     return { command: 'codex', args: [] }
+  }
+}
+
+export async function resolveKimiBin(): Promise<string> {
+  const localPath = join(homedir(), '.kimi-code', 'bin', 'kimi')
+  try {
+    await access(localPath)
+    return localPath
+  } catch {
+    return 'kimi'
   }
 }
