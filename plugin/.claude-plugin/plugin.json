@@ -1,7 +1,7 @@
 {
   "name": "delegate-multi-provider",
-  "version": "0.6.0",
-  "description": "Delegate bounded implementation subtasks to subscription-CLI workers (Codex/Claude/Antigravity/Kimi) in isolated git worktrees. Claude Code stays the orchestrator: plan, decompose, validate, merge.",
+  "version": "0.7.0",
+  "description": "Delegate bounded implementation subtasks to subscription-CLI workers (Codex/Claude/Antigravity/Kimi/Mammouth) in isolated git worktrees. Claude Code stays the orchestrator: plan, decompose, validate, merge.",
   "author": { "name": "Axel Biehler" },
   "homepage": "https://github.com/axel-biehler/claude-code-multi-provider",
   "repository": "https://github.com/axel-biehler/claude-code-multi-provider",
