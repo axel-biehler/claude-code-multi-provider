@@ -28441,10 +28441,10 @@ var StdioServerTransport = class {
 
 // src/jobs/executor.ts
 import { execFile as execFile3 } from "node:child_process";
-import { access as access2, mkdir, readFile as readFile5, symlink, writeFile } from "node:fs/promises";
-import { homedir as homedir2 } from "node:os";
-import { join as join4 } from "node:path";
-import { performance as performance5 } from "node:perf_hooks";
+import { access as access3, mkdir, readFile as readFile6, symlink, writeFile } from "node:fs/promises";
+import { homedir as homedir3 } from "node:os";
+import { join as join5 } from "node:path";
+import { performance as performance6 } from "node:perf_hooks";
 import { promisify as promisify3 } from "node:util";
 
 // src/engines/antigravity.ts
@@ -29083,6 +29083,128 @@ ${stderrText}`;
   });
 }
 
+// src/engines/mammouth.ts
+import { spawn as spawn6 } from "node:child_process";
+import { access as access2, readFile as readFile5 } from "node:fs/promises";
+import { homedir as homedir2 } from "node:os";
+import { join as join2 } from "node:path";
+import { performance as performance5 } from "node:perf_hooks";
+var DEFAULT_TIMEOUT_MS5 = 6e5;
+function parseMammouthEvents(raw) {
+  let lastMessage = null;
+  let errorMessage = null;
+  for (const line of raw.split(/\r?\n/)) {
+    if (line.trim() === "") continue;
+    try {
+      const parsed = JSON.parse(line);
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) continue;
+      const event = parsed;
+      if (event.type === "text" && typeof event.part === "object" && event.part !== null) {
+        const part = event.part;
+        if (typeof part.text === "string") lastMessage = part.text;
+      }
+      if (event.type === "error") {
+        errorMessage = null;
+        if (typeof event.error !== "object" || event.error === null) continue;
+        const error2 = event.error;
+        if (typeof error2.data === "object" && error2.data !== null) {
+          const data = error2.data;
+          if (typeof data.message === "string") {
+            errorMessage = data.message;
+            continue;
+          }
+        }
+        if (typeof error2.name === "string") errorMessage = error2.name;
+      }
+    } catch {
+    }
+  }
+  return { lastMessage, errorMessage };
+}
+function classifyMammouthFailure(input) {
+  if (input.exitCode === 0) return void 0;
+  return classifyFailureText(`${input.eventsText}
+${input.stderrText}`);
+}
+function buildMammouthArgs(options) {
+  return [
+    "run",
+    "--format",
+    "json",
+    "--dangerously-skip-permissions",
+    ...options.model === void 0 ? [] : [`--model=${options.model}`],
+    ...options.reasoning === void 0 ? [] : [`--variant=${options.reasoning}`],
+    // The separator prevents a prompt beginning with "-" from being parsed as a flag.
+    "--",
+    options.prompt
+  ];
+}
+async function resolveMammouthBin(home = homedir2(), platform = process.platform) {
+  const localPath = join2(
+    home,
+    ".mammouth",
+    "bin",
+    platform === "win32" ? "mammouth.exe" : "mammouth"
+  );
+  try {
+    await access2(localPath);
+    return localPath;
+  } catch {
+    return "mammouth";
+  }
+}
+function runMammouth(options) {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS5;
+  return new Promise((resolve, reject) => {
+    const startedAt = performance5.now();
+    const child = spawn6(options.mammouthBin ?? "mammouth", buildMammouthArgs(options), {
+      cwd: options.worktreePath,
+      env: buildWorkerEnv(),
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    const stdoutDone = drainToFile(child.stdout, options.paths.eventsFile);
+    const stderrDone = drainToFile(child.stderr, options.paths.stderrFile);
+    const streamsSettled = () => Promise.allSettled([stdoutDone, stderrDone]);
+    const guard = armTimeoutGuard(child, timeoutMs);
+    child.on("error", (error2) => {
+      guard.disarm();
+      void streamsSettled().then(() => reject(error2));
+    });
+    child.on("close", (code) => {
+      guard.disarm();
+      if (guard.didTimeout()) {
+        console.error(
+          `[delegate] worker exceeded ${timeoutMs}ms and was terminated \u2014 treating exit as failure`
+        );
+      }
+      void streamsSettled().then(
+        () => Promise.all([
+          readFile5(options.paths.eventsFile, "utf8").catch(() => ""),
+          readFile5(options.paths.stderrFile, "utf8").catch(() => "")
+        ])
+      ).then(([raw, stderrText]) => {
+        const exitCode = unmaskTimedOutExit(code ?? -1, guard.didTimeout());
+        const failureKind = classifyMammouthFailure({
+          exitCode,
+          eventsText: raw,
+          stderrText
+        });
+        const text = `${raw}
+${stderrText}`;
+        const retryAtMs = failureKind === "quota" ? parseRetryAt(text, Date.now()) : void 0;
+        const parsed = parseMammouthEvents(raw);
+        resolve({
+          exitCode,
+          lastMessage: parsed.lastMessage ?? parsed.errorMessage,
+          durationMs: performance5.now() - startedAt,
+          failureKind,
+          ...retryAtMs === void 0 ? {} : { retryAtMs }
+        });
+      });
+    });
+  });
+}
+
 // src/engines/shared/prompt.ts
 var RULES_TEXT = "work only inside this repository checkout; do NOT commit \u2014 leave all changes uncommitted in the working tree; add or update tests covering your change when a test setup exists; keep changes minimal and focused on the objective.";
 var PREVIOUS_ATTEMPT_TEXT = "The working tree already contains the previous attempt as uncommitted changes. Revise that work according to the feedback \u2014 do not start from scratch and do not blindly rewrite unrelated parts.";
@@ -29125,7 +29247,7 @@ ${items}`;
 
 // src/git/worktree.ts
 import { execFile as execFile2 } from "node:child_process";
-import { join as join2 } from "node:path";
+import { join as join3 } from "node:path";
 import { promisify as promisify2 } from "node:util";
 var execFileAsync = promisify2(execFile2);
 async function runGit(cwd, args) {
@@ -29138,7 +29260,7 @@ async function runGit(cwd, args) {
   }
 }
 async function createWorktree(repoRoot, jobId) {
-  const path = join2(repoRoot, ".delegate", "worktrees", jobId);
+  const path = join3(repoRoot, ".delegate", "worktrees", jobId);
   const branch = `delegate/${jobId}`;
   await runGit(repoRoot, ["worktree", "add", path, "-b", branch]);
   return { path, branch };
@@ -29174,17 +29296,17 @@ function selectEngine(policy, ledger, exclude) {
 }
 
 // src/jobs/paths.ts
-import { join as join3 } from "node:path";
+import { join as join4 } from "node:path";
 function buildJobPaths(repoRoot, jobId) {
-  const jobDir = join3(repoRoot, ".delegate", "jobs", jobId);
+  const jobDir = join4(repoRoot, ".delegate", "jobs", jobId);
   return {
     jobDir,
-    promptFile: join3(jobDir, "prompt.md"),
-    eventsFile: join3(jobDir, "events.ndjson"),
-    stderrFile: join3(jobDir, "stderr.log"),
-    lastMessageFile: join3(jobDir, "last-message.md"),
-    diffFile: join3(jobDir, "diff.patch"),
-    statusFile: join3(jobDir, "status.json")
+    promptFile: join4(jobDir, "prompt.md"),
+    eventsFile: join4(jobDir, "events.ndjson"),
+    stderrFile: join4(jobDir, "stderr.log"),
+    lastMessageFile: join4(jobDir, "last-message.md"),
+    diffFile: join4(jobDir, "diff.patch"),
+    statusFile: join4(jobDir, "status.json")
   };
 }
 
@@ -29206,8 +29328,8 @@ function cloneCommandFor(platform, source, target) {
   return null;
 }
 async function provisionNodeModules(repoRoot, worktreePath) {
-  const source = join4(repoRoot, "node_modules");
-  const target = join4(worktreePath, "node_modules");
+  const source = join5(repoRoot, "node_modules");
+  const target = join5(worktreePath, "node_modules");
   const clone2 = cloneCommandFor(process.platform, source, target);
   if (clone2 !== null) {
     try {
@@ -29225,9 +29347,9 @@ async function provisionNodeModules(repoRoot, worktreePath) {
   }
 }
 async function resolveAntigravityBin() {
-  const localPath = join4(homedir2(), ".local", "bin", "agy");
+  const localPath = join5(homedir3(), ".local", "bin", "agy");
   try {
-    await access2(localPath);
+    await access3(localPath);
     return localPath;
   } catch {
     return "agy";
@@ -29307,6 +29429,18 @@ function buildDefaultWorkerRunner() {
         model: req.model
       });
     }
+    if (req.engine === "mammouth") {
+      const worker2 = req.policy.workers.mammouth;
+      return runMammouth({
+        mammouthBin: await resolveMammouthBin(),
+        worktreePath: req.worktreePath,
+        prompt: req.prompt,
+        paths: req.paths,
+        timeoutMs: worker2.timeoutMs,
+        model: req.model,
+        reasoning: req.reasoning
+      });
+    }
     const codexCli = await resolveCodexCli(req.repoRoot);
     const configOverrides = await resolveCodexConfigOverrides(codexCli);
     const worker = req.policy.workers.codex;
@@ -29336,7 +29470,7 @@ async function runEngineChain(deps, runWorker, jobId, prompt, paths, revision, e
       worktree = await createWorktreeSerialized(deps.repoRoot, jobId);
       await provisionNodeModules(deps.repoRoot, worktree.path);
       if (revision !== void 0) {
-        const parentDiff = await readFile5(revision.parentDiffPath, "utf8");
+        const parentDiff = await readFile6(revision.parentDiffPath, "utf8");
         if (parentDiff.trim().length > 0) {
           try {
             await execFileAsync2(
@@ -29391,7 +29525,7 @@ async function runEngineChain(deps, runWorker, jobId, prompt, paths, revision, e
   }
 }
 async function executeJob(deps, jobId, task, revision) {
-  const startedAt = performance5.now();
+  const startedAt = performance6.now();
   const runWorker = deps.runWorker ?? buildDefaultWorkerRunner();
   const paths = buildJobPaths(deps.repoRoot, jobId);
   await mkdir(paths.jobDir, { recursive: true });
@@ -29423,7 +29557,7 @@ async function executeJob(deps, jobId, task, revision) {
       diffPath: paths.diffFile,
       diff,
       exitCode: outcome.exitCode,
-      durationMs: performance5.now() - startedAt,
+      durationMs: performance6.now() - startedAt,
       engine
     };
   } catch (error2) {
@@ -29556,8 +29690,8 @@ var JobStore = class {
 };
 
 // src/mcp/tools.ts
-import { access as access3 } from "node:fs/promises";
-import { join as join8 } from "node:path";
+import { access as access4 } from "node:fs/promises";
+import { join as join9 } from "node:path";
 
 // src/config/detect.ts
 import { execFile as execFile4 } from "node:child_process";
@@ -29684,32 +29818,55 @@ async function detectKimi() {
     reports: [{ status: "ok", message: `kimi binary: ${version2}` }]
   };
 }
+async function detectMammouth() {
+  const bin = await resolveMammouthBin();
+  const result = await run(bin, ["--version"]);
+  const notFound = "mammouth CLI not found \u2014 install Mammouth Code and sign in via: mammouth providers";
+  if (result.spawnErrorCode !== void 0 || result.exitCode !== 0) {
+    return {
+      engine: "mammouth",
+      available: false,
+      detail: notFound,
+      reports: [{ status: "fail", message: notFound }]
+    };
+  }
+  const version2 = firstLine(result.stdout);
+  return {
+    engine: "mammouth",
+    available: true,
+    detail: `binary: ${version2}; authentication is verified when the first delegated job runs`,
+    reports: [{ status: "ok", message: `mammouth binary: ${version2}` }]
+  };
+}
 function detectAuthenticatedProvider(engine, repoRoot) {
   if (engine === "codex") return detectCodex(repoRoot);
   if (engine === "antigravity") return detectAntigravity();
   if (engine === "kimi") return detectKimi();
+  if (engine === "mammouth") return detectMammouth();
   return detectClaude();
 }
 async function detectAuthenticatedProviders(repoRoot) {
-  const [codex, claude, antigravity, kimi] = await Promise.all([
+  const [codex, claude, antigravity, kimi, mammouth] = await Promise.all([
     detectAuthenticatedProvider("codex", repoRoot),
     detectAuthenticatedProvider("claude", repoRoot),
     detectAuthenticatedProvider("antigravity", repoRoot),
-    detectAuthenticatedProvider("kimi", repoRoot)
+    detectAuthenticatedProvider("kimi", repoRoot),
+    detectAuthenticatedProvider("mammouth", repoRoot)
   ]);
   return {
     codex: { available: codex.available, detail: codex.detail },
     claude: { available: claude.available, detail: claude.detail },
     antigravity: { available: antigravity.available, detail: antigravity.detail },
-    kimi: { available: kimi.available, detail: kimi.detail }
+    kimi: { available: kimi.available, detail: kimi.detail },
+    mammouth: { available: mammouth.available, detail: mammouth.detail }
   };
 }
 
 // src/config/models.ts
 import { execFile as execFile5 } from "node:child_process";
-import { readFile as readFile6 } from "node:fs/promises";
-import { homedir as homedir3 } from "node:os";
-import { join as join5 } from "node:path";
+import { readFile as readFile7 } from "node:fs/promises";
+import { homedir as homedir4 } from "node:os";
+import { join as join6 } from "node:path";
 var EXEC_MAX_BUFFER_BYTES2 = 16 * 1024 * 1024;
 var ANTIGRAVITY_CATALOG = [
   { id: "gemini-3.6-flash-high", recommended: true },
@@ -29730,6 +29887,9 @@ function codexFallback() {
   return { models: [], source: "catalog" };
 }
 function kimiFallback() {
+  return { models: [], source: "catalog" };
+}
+function mammouthFallback() {
   return { models: [], source: "catalog" };
 }
 function run2(command, args) {
@@ -29757,7 +29917,7 @@ function run2(command, args) {
     }
   });
 }
-function parseAgyModelsOutput(stdout) {
+function parseLineModelsOutput(stdout) {
   return stdout.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0).map((id, index) => index === 0 ? { id, recommended: true } : { id });
 }
 function parseCodexConfigModel(toml) {
@@ -29779,12 +29939,17 @@ function parseKimiConfigModel(toml) {
 async function listAntigravityModels() {
   const result = await run2("agy", ["models"]);
   if (result.exitCode !== 0) return antigravityFallback();
-  return { models: parseAgyModelsOutput(result.stdout), source: "cli" };
+  return { models: parseLineModelsOutput(result.stdout), source: "cli" };
+}
+async function listMammouthModels() {
+  const result = await run2(await resolveMammouthBin(), ["models"]);
+  if (result.exitCode !== 0) return mammouthFallback();
+  return { models: parseLineModelsOutput(result.stdout), source: "cli" };
 }
 async function listCodexModels() {
   let config2;
   try {
-    config2 = await readFile6(join5(homedir3(), ".codex", "config.toml"), "utf8");
+    config2 = await readFile7(join6(homedir4(), ".codex", "config.toml"), "utf8");
   } catch {
     return codexFallback();
   }
@@ -29799,7 +29964,7 @@ async function listCodexModels() {
 async function listKimiModels() {
   let config2;
   try {
-    config2 = await readFile6(join5(homedir3(), ".kimi-code", "config.toml"), "utf8");
+    config2 = await readFile7(join6(homedir4(), ".kimi-code", "config.toml"), "utf8");
   } catch {
     return kimiFallback();
   }
@@ -29820,40 +29985,44 @@ async function listClaudeModels() {
 }
 function listProviderModels(engine, repoRoot) {
   if (engine === "antigravity") return listAntigravityModels();
+  if (engine === "mammouth") return listMammouthModels();
   if (engine === "codex") return listCodexModels();
   if (engine === "kimi") return listKimiModels();
   return listClaudeModels();
 }
 async function listAllProviderModels(repoRoot) {
-  const [codex, claude, antigravity, kimi] = await Promise.all([
+  const [codex, claude, antigravity, kimi, mammouth] = await Promise.all([
     listProviderModels("codex", repoRoot).catch(codexFallback),
     listProviderModels("claude", repoRoot).catch(listClaudeModels),
     listProviderModels("antigravity", repoRoot).catch(antigravityFallback),
-    listProviderModels("kimi", repoRoot).catch(kimiFallback)
+    listProviderModels("kimi", repoRoot).catch(kimiFallback),
+    listProviderModels("mammouth", repoRoot).catch(mammouthFallback)
   ]);
-  return { codex, claude, antigravity, kimi };
+  return { codex, claude, antigravity, kimi, mammouth };
 }
 
 // src/config/policy-writer.ts
 var import_yaml2 = __toESM(require_dist2(), 1);
-import { readFile as readFile8, writeFile as writeFile3 } from "node:fs/promises";
-import { join as join7 } from "node:path";
+import { readFile as readFile9, writeFile as writeFile3 } from "node:fs/promises";
+import { join as join8 } from "node:path";
 
 // src/routing/policy.ts
 var import_yaml = __toESM(require_dist2(), 1);
-import { readFile as readFile7 } from "node:fs/promises";
-import { join as join6 } from "node:path";
+import { readFile as readFile8 } from "node:fs/promises";
+import { join as join7 } from "node:path";
 var POLICY_FILE_NAME = "policy.yaml";
-var EngineNameSchema = external_exports.enum(["codex", "claude", "antigravity", "kimi"]);
+var EngineNameSchema = external_exports.enum(["codex", "claude", "antigravity", "kimi", "mammouth"]);
 var EffortSchema = external_exports.enum(["light", "standard", "heavy"]);
 var CodexReasoningSchema = external_exports.enum(["minimal", "low", "medium", "high", "xhigh"]);
 var ClaudeReasoningSchema = external_exports.enum(["low", "medium", "high", "xhigh", "max"]);
 var AntigravityReasoningSchema = external_exports.enum(["low", "medium", "high"]);
+var MammouthReasoningSchema = external_exports.enum(["minimal", "low", "medium", "high", "max"]);
 var ReasoningSchemaByEngine = {
   codex: CodexReasoningSchema,
   claude: ClaudeReasoningSchema,
   antigravity: AntigravityReasoningSchema,
-  kimi: null
+  kimi: null,
+  mammouth: MammouthReasoningSchema
 };
 var ModelIdSchema = external_exports.string().min(1).refine((value) => !value.startsWith("-"), { message: 'model id must not start with "-"' });
 var QuotaConfigSchema = external_exports.object({
@@ -29900,13 +30069,23 @@ var PolicySchema = external_exports.object({
       models: external_exports.record(EffortSchema, ModelIdSchema).optional(),
       // The Kimi CLI has no reasoning/effort flag; effort tiers use the models map only.
       timeoutMs: external_exports.number().int().positive().default(6e5)
+    }).default({}),
+    mammouth: external_exports.object({
+      model: ModelIdSchema.optional(),
+      models: external_exports.record(EffortSchema, ModelIdSchema).optional(),
+      reasoning: external_exports.union([
+        MammouthReasoningSchema,
+        external_exports.record(EffortSchema, MammouthReasoningSchema)
+      ]).optional(),
+      timeoutMs: external_exports.number().int().positive().default(6e5)
     }).default({})
   }).default({}),
   quotas: external_exports.object({
     codex: QuotaConfigSchema.default({}),
     claude: QuotaConfigSchema.default({}),
     antigravity: QuotaConfigSchema.default({}),
-    kimi: QuotaConfigSchema.default({})
+    kimi: QuotaConfigSchema.default({}),
+    mammouth: QuotaConfigSchema.default({})
   }).default({}),
   retention: external_exports.object({
     maxAgeDays: external_exports.number().int().min(1).default(7),
@@ -29916,10 +30095,10 @@ var PolicySchema = external_exports.object({
 var DEFAULT_POLICY = PolicySchema.parse({});
 DEFAULT_POLICY.quotas.codex;
 async function loadPolicy(repoRoot) {
-  const policyPath = join6(repoRoot, POLICY_FILE_NAME);
+  const policyPath = join7(repoRoot, POLICY_FILE_NAME);
   let raw;
   try {
-    raw = await readFile7(policyPath, "utf8");
+    raw = await readFile8(policyPath, "utf8");
   } catch (error2) {
     if (isMissingFile(error2)) return DEFAULT_POLICY;
     const detail = error2 instanceof Error ? error2.message : String(error2);
@@ -29991,15 +30170,15 @@ function renderPolicyYaml(current, patch) {
   return rendered;
 }
 async function writePolicyFile(repoRoot, patch) {
-  const policyPath = join7(repoRoot, "policy.yaml");
-  const examplePath = join7(repoRoot, "policy.example.yaml");
+  const policyPath = join8(repoRoot, "policy.yaml");
+  const examplePath = join8(repoRoot, "policy.example.yaml");
   let current;
   try {
-    current = await readFile8(policyPath, "utf8");
+    current = await readFile9(policyPath, "utf8");
   } catch (error2) {
     if (!isMissingFile2(error2)) throw readError(policyPath, error2);
     try {
-      current = await readFile8(examplePath, "utf8");
+      current = await readFile9(examplePath, "utf8");
     } catch (exampleError) {
       if (!isMissingFile2(exampleError)) throw readError(examplePath, exampleError);
       current = null;
@@ -30085,6 +30264,9 @@ function summarizePolicy(policy) {
     models.antigravity = policy.workers.antigravity.model;
   }
   if (policy.workers.kimi.model !== void 0) models.kimi = policy.workers.kimi.model;
+  if (policy.workers.mammouth.model !== void 0) {
+    models.mammouth = policy.workers.mammouth.model;
+  }
   const modelTiers = {};
   if (policy.workers.codex.models !== void 0) modelTiers.codex = policy.workers.codex.models;
   if (policy.workers.claude.models !== void 0) modelTiers.claude = policy.workers.claude.models;
@@ -30092,6 +30274,9 @@ function summarizePolicy(policy) {
     modelTiers.antigravity = policy.workers.antigravity.models;
   }
   if (policy.workers.kimi.models !== void 0) modelTiers.kimi = policy.workers.kimi.models;
+  if (policy.workers.mammouth.models !== void 0) {
+    modelTiers.mammouth = policy.workers.mammouth.models;
+  }
   const reasoning = {};
   if (policy.workers.codex.reasoning !== void 0) {
     reasoning.codex = policy.workers.codex.reasoning;
@@ -30101,6 +30286,9 @@ function summarizePolicy(policy) {
   }
   if (policy.workers.antigravity.reasoning !== void 0) {
     reasoning.antigravity = policy.workers.antigravity.reasoning;
+  }
+  if (policy.workers.mammouth.reasoning !== void 0) {
+    reasoning.mammouth = policy.workers.mammouth.reasoning;
   }
   return {
     chain: policy.chain,
@@ -30139,6 +30327,13 @@ function buildConfigureDelegationDetectPayload(providers, models, currentPolicy)
         models: models.kimi.models,
         modelsSource: models.kimi.source,
         ...models.kimi.defaultModel === void 0 ? {} : { defaultModel: models.kimi.defaultModel }
+      },
+      mammouth: {
+        available: providers.mammouth.available,
+        detail: providers.mammouth.detail,
+        models: models.mammouth.models,
+        modelsSource: models.mammouth.source,
+        ...models.mammouth.defaultModel === void 0 ? {} : { defaultModel: models.mammouth.defaultModel }
       }
     },
     currentPolicy: currentPolicy === null ? null : summarizePolicy(currentPolicy)
@@ -30148,9 +30343,9 @@ function parseConfigureDelegationWriteInput(input) {
   return ConfigureDelegationWriteInputSchema.parse(input);
 }
 async function loadExistingPolicy(repoRoot) {
-  const policyPath = join8(repoRoot, "policy.yaml");
+  const policyPath = join9(repoRoot, "policy.yaml");
   try {
-    await access3(policyPath);
+    await access4(policyPath);
   } catch (error2) {
     if (error2 instanceof Error && "code" in error2 && error2.code === "ENOENT") return null;
     const detail = error2 instanceof Error ? error2.message : String(error2);
@@ -30311,12 +30506,12 @@ function registerDelegateTools(server, store, serverInfo, repoRoot) {
 }
 
 // src/routing/quota.ts
-import { mkdir as mkdir3, readFile as readFile9, writeFile as writeFile4 } from "node:fs/promises";
-import { dirname, join as join9 } from "node:path";
+import { mkdir as mkdir3, readFile as readFile10, writeFile as writeFile4 } from "node:fs/promises";
+import { dirname, join as join10 } from "node:path";
 var WINDOW_5H_MS = 5 * 60 * 60 * 1e3;
 var WINDOW_WEEK_MS = 7 * 24 * 60 * 60 * 1e3;
 var attemptSchema = external_exports.object({
-  engine: external_exports.enum(["codex", "claude", "antigravity", "kimi"]),
+  engine: external_exports.enum(["codex", "claude", "antigravity", "kimi", "mammouth"]),
   at: external_exports.number().finite(),
   durationMs: external_exports.number().finite(),
   outcome: external_exports.enum(["ok", "quota", "auth", "other"])
@@ -30327,7 +30522,8 @@ var persistedLedgerSchema = external_exports.object({
     codex: external_exports.number().finite().optional(),
     claude: external_exports.number().finite().optional(),
     antigravity: external_exports.number().finite().optional(),
-    kimi: external_exports.number().finite().optional()
+    kimi: external_exports.number().finite().optional(),
+    mammouth: external_exports.number().finite().optional()
   })
 });
 var EMPTY_STATE = { attempts: [], exhaustedUntil: {} };
@@ -30348,9 +30544,9 @@ var QuotaLedger = class _QuotaLedger {
     this.now = now;
   }
   static async load(repoRoot, now = Date.now) {
-    const filePath = join9(repoRoot, ".delegate", "quota-ledger.json");
+    const filePath = join10(repoRoot, ".delegate", "quota-ledger.json");
     try {
-      const raw = await readFile9(filePath, "utf8");
+      const raw = await readFile10(filePath, "utf8");
       const parsed = persistedLedgerSchema.parse(JSON.parse(raw));
       return new _QuotaLedger(filePath, parsed, now);
     } catch (error2) {

@@ -66,8 +66,8 @@ context and returns one consolidated report. You still perform the merges.
 
 Set in **`policy.yaml`** (copy `policy.example.yaml`; it's local + gitignored):
 
-- `chain:` — the ordered provider fallback: `[codex]`, `[claude]`, `[antigravity]`, `[kimi]`, or any
-  ordered combination. The first entry receives every job; later entries are automatic
+- `chain:` — the ordered provider fallback: `[codex]`, `[claude]`, `[antigravity]`, `[kimi]`,
+  `[mammouth]`, or any ordered combination. The first entry receives every job; later entries are automatic
   fallbacks used only when an earlier provider hits a quota/auth wall. Set this to whatever
   you've authenticated.
 - `workers.<provider>.model:` — the model per provider (a codex model id, or a Claude
@@ -78,10 +78,10 @@ Set in **`policy.yaml`** (copy `policy.example.yaml`; it's local + gitignored):
   either form.
 - `workers.<provider>.reasoning:` — optional scalar or per-effort map. Use engine-native
   values: codex `minimal`/`low`/`medium`/`high`/`xhigh` (`-c model_reasoning_effort`),
-  claude `low`/`medium`/`high`/`xhigh`/`max` (`--effort`), or antigravity
-  `low`/`medium`/`high` (`--effort`); kimi has no reasoning flag — its effort tiers use the
-  per-effort `models` map only. If absent, the provider default applies and no flag is
-  passed.
+  claude `low`/`medium`/`high`/`xhigh`/`max` (`--effort`), antigravity
+  `low`/`medium`/`high` (`--effort`), or mammouth `minimal`/`low`/`medium`/`high`/`max`
+  (`--variant`); kimi has no reasoning flag — its effort tiers use the per-effort `models`
+  map only. If absent, the provider default applies and no flag is passed.
 
 Run `/delegate-init` (or `configure_delegation({ action: "detect" })`) to see which
 providers are available and pick the chain, models, and reasoning tiers; `npm run preflight`
