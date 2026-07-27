@@ -24,7 +24,8 @@ escalation on reject (`parent_job_id`/`feedback`/`escalate` on `delegate_task`),
 Antigravity (`agy`) is implemented as a third engine (`src/engines/antigravity.ts`), wired
 through policy/routing/detect/preflight/configure and opt-in via the `policy.yaml` chain.
 Kimi Code (`kimi`) is the fourth engine (`src/engines/kimi.ts`), wired through the same
-surface and opt-in via the chain.
+surface and opt-in via the chain. Mammouth Code (`mammouth`, an opencode fork) is the fifth
+engine (`src/engines/mammouth.ts`) with the same opt-in wiring.
 LiteLLM `api` tier remains designed, awaiting user keys — see PHASE2-RESULTS.
 
 ## How to test
@@ -110,6 +111,20 @@ Engine selection: copy `policy.example.yaml` → `policy.yaml` (gitignored) and 
   (HOME passthrough suffices); the binary resolves via `resolveKimiBin`
   (`~/.kimi-code/bin/kimi`, PATH fallback). No per-invocation MCP-disable flag — same isolation
   gap as agy.
+- Mammouth workers (opencode fork) use `mammouth run --format json --dangerously-skip-permissions
+  [--model=…] [--variant=…] -- <prompt>`: stdout is NDJSON events — the LAST `text` event's
+  `part.text` is the final message; failures emit an `error` event on stdout with exit 1, and some
+  provider errors surface as a generic "Unexpected server error" (classified `other`, so no
+  quota/auth reroute). The `--` separator is mandatory (the prompt is positional — flag-injection
+  guard). Writes land in cwd, so the worktree needs no workspace flag (unlike agy). Model ids are
+  `provider/model` from `mammouth models` (works pre-auth; free `opencode/*` models cost nothing —
+  the preflight probe uses `opencode/big-pickle` as a zero-cost live check). Reasoning maps to
+  `--variant`, which the CLI does NOT validate: the policy enum (`minimal|low|medium|high|max`) is
+  our own guard. The binary lives at `~/.mammouth/bin/mammouth` (`resolveMammouthBin` — GUI-launched
+  servers often lack it on PATH) and auth resolves via `HOME` (`~/.local/share/mammouth`), so no new
+  env allow-list keys. No per-invocation MCP isolation exists (`OPENCODE_CONFIG` is ignored/merged;
+  `--pure` only disables plugins): personal MCP servers in `~/.config/mammouth/mammouth.jsonc` are
+  not isolated beyond the worktree, sanitized env and timeout guard — same caveat as agy.
 - Personal project: public npm registry pinned in `.npmrc`; **never** use a private/corporate registry.
 - Engine selection lives in the `policy.yaml` router (chain + per-engine quotas); quota/auth
   failures reroute to the next engine. Keep results engine-neutral ("delegated worker", not

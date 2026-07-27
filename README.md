@@ -2,12 +2,12 @@
 
 A **delegate MCP server** for Claude Code. Claude Code stays the orchestrator — it
 plans, decomposes, and validates — and hands bounded implementation subtasks to
-subscription-CLI workers (Codex, Claude, Antigravity, and Kimi Code) running in isolated git
+subscription-CLI workers (Codex, Claude, Antigravity, Kimi Code, and Mammouth) running in isolated git
 worktrees. The four-tool surface hides which engine ran: you get back a distilled
 summary and a diff to review and merge.
 
 ```
-Claude Code ──delegate_task──▶ router (policy.yaml) ──▶ worker (codex / claude / antigravity / kimi)
+Claude Code ──delegate_task──▶ router (policy.yaml) ──▶ worker (codex / claude / antigravity / kimi / mammouth)
      ▲                                                     │  isolated git worktree
      └──────── summary + diff ◀── check_delegations ◀──────┘  full logs to .delegate/
 ```
@@ -55,6 +55,7 @@ The worker CLIs are **not** bundled (they're heavy/native), so a plugin user sti
 - *(optional)* a Claude seat for the fallback (`claude setup-token`)
 - *(optional)* Antigravity `agy` on PATH for the Antigravity worker
 - *(optional)* Kimi Code `kimi` for the Kimi worker (official installer, then `kimi login`)
+- *(optional)* Mammouth Code `mammouth` (`~/.mammouth/bin`) for the Mammouth worker
 
 *(Maintainer: rebuild the bundle after touching `src/`, a skill, or the subagent with
 `npm run build:plugin`, then commit `plugin/`.)*
@@ -66,10 +67,13 @@ The worker CLIs are **not** bundled (they're heavy/native), so a plugin user sti
   dependency — no global install — so authenticate via `npm run codex-login`.
   (Don't run `npx codex`: it resolves an unrelated registry package, not the bundled CLI.)
 - *(optional)* **A Claude seat** for the fallback worker — `claude setup-token`. The
-  chain works on Codex alone; Claude, Antigravity, and Kimi tiers only engage when configured.
+  chain works on Codex alone; Claude, Antigravity, Kimi, and Mammouth tiers only engage when
+  configured.
 - *(optional)* **Antigravity `agy`** for the third worker; it is opt-in through `policy.yaml`.
 - *(optional)* **Kimi Code `kimi`** for the fourth worker; opt-in through `policy.yaml`
   (install from code.kimi.com, authenticate with `kimi login`).
+- *(optional)* **Mammouth Code `mammouth`** for the fifth worker; also opt-in through
+  `policy.yaml`, and its free `opencode/*` models work before any paid sign-in.
 
 ## Platform support
 
@@ -121,12 +125,13 @@ The merge-safe writer updates those selections in `policy.yaml` without dropping
 fields. You can also edit the local, gitignored file by hand (copy `policy.example.yaml`
 to start):
 
-- `chain:` — ordered provider fallback: `[codex]`, `[claude]`, `[antigravity]`, `[kimi]`, or
-  any ordered combination such as `[codex, claude, antigravity, kimi]`. Set it
+- `chain:` — ordered provider fallback: `[codex]`, `[claude]`, `[antigravity]`, `[kimi]`,
+  `[mammouth]`, or any ordered combination such as `[codex, claude, antigravity, kimi,
+  mammouth]`. Set it
   to whatever you've authenticated; `npm run preflight` reports what's usable on your machine.
 - `workers.<provider>.model:` — the model per provider (a codex model id, a Claude alias
-  like `sonnet`, an Antigravity model id, or a Kimi model id), plus per-provider budgets
-  and timeouts.
+  like `sonnet`, an Antigravity model id, a Kimi model id, or a Mammouth `provider/model` id
+  from `mammouth models`), plus per-provider budgets and timeouts.
 
 Quotas and artifact retention live in the same file. Every field is optional; an absent
 file means the defaults documented in [policy.example.yaml](policy.example.yaml).
