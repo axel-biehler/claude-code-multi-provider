@@ -28454,7 +28454,7 @@ import { performance } from "node:perf_hooks";
 
 // src/engines/shared/failure-signals.ts
 var QUOTA_PATTERN = /usage limit|rate limit|quota|too many requests|\b429\b/i;
-var AUTH_PATTERN = /\b401\b|unauthorized|invalid credentials|not logged in|token revoked|authentication/i;
+var AUTH_PATTERN = /\b401\b|\b403\b|unauthorized|invalid credentials|not logged in|login[_ ]required|requires login|token revoked|authentication/i;
 function classifyFailureText(text) {
   if (QUOTA_PATTERN.test(text)) return "quota";
   if (AUTH_PATTERN.test(text)) return "auth";
