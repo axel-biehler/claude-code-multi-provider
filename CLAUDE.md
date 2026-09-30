@@ -117,8 +117,10 @@ Engine selection: copy `policy.example.yaml` → `policy.yaml` (gitignored) and 
   provider errors surface as a generic "Unexpected server error" (classified `other`, so no
   quota/auth reroute). The `--` separator is mandatory (the prompt is positional — flag-injection
   guard). Writes land in cwd, so the worktree needs no workspace flag (unlike agy). Model ids are
-  `provider/model` from `mammouth models` (works pre-auth; free `opencode/*` models cost nothing —
-  the preflight probe uses `opencode/big-pickle` as a zero-cost live check). Reasoning maps to
+  `provider/model` from `mammouth models` (the list works pre-auth, but the free `opencode/*` tier
+  is refused at runtime since 2026-09-30 — 403 `FreeTierError`, "can only be used from within
+  OpenCode" — so mammouth needs a paid sign-in via `mammouth providers`, and the preflight probe
+  passes no `--model`, exercising the CLI's own configured default). Reasoning maps to
   `--variant`, which the CLI does NOT validate: the policy enum (`minimal|low|medium|high|max`) is
   our own guard. The binary lives at `~/.mammouth/bin/mammouth` (`resolveMammouthBin` — GUI-launched
   servers often lack it on PATH) and auth resolves via `HOME` (`~/.local/share/mammouth`), so no new
