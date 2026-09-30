@@ -31,7 +31,6 @@ const KIMI_PROBE_PROMPT = 'Reply with exactly: ok'
 const MAMMOUTH_PROBE_PROMPT = 'Reply with exactly: ok'
 // This free-tier model is available to every Mammouth install, even before sign-in,
 // so the probe validates binary, network, and plumbing at zero cost.
-const MAMMOUTH_PROBE_MODEL = 'opencode/big-pickle'
 // Measured floor: a minimal `claude -p` costs ~$0.41 just to boot (≈69k cache-creation
 // tokens of CLI system prompt), so the cap must sit well above it. Guard, not a target.
 const CLAUDE_PROBE_BUDGET_USD = '1'
@@ -373,7 +372,8 @@ async function probeMammouth(reporter: Reporter): Promise<boolean> {
       '--format',
       'json',
       '--dangerously-skip-permissions',
-      `--model=${MAMMOUTH_PROBE_MODEL}`,
+      // No --model: the free `opencode/*` tier is refused at runtime (403 FreeTierError),
+      // so the probe must exercise whatever model the user's own CLI is configured for.
       '--',
       MAMMOUTH_PROBE_PROMPT,
     ],
@@ -389,12 +389,15 @@ async function probeMammouth(reporter: Reporter): Promise<boolean> {
       eventsText: result.stdout,
       stderrText: result.stderr,
     }) ?? 'other'
+  // Failures arrive as an `error` event on stdout and leave stderr empty, so without the
+  // parsed message the report degrades to a bare exit code.
+  const reason = parseMammouthEvents(result.stdout).errorMessage
   const detail =
     kind === 'quota'
       ? QUOTA_VERDICT
       : kind === 'auth'
-        ? 'not signed in — run: mammouth providers'
-        : describeOtherFailure(result)
+        ? `${reason ?? 'not signed in'} — sign in with: mammouth providers`
+        : (reason ?? describeOtherFailure(result))
   reporter.fail(`mammouth probe: ${detail}`)
   return false
 }
