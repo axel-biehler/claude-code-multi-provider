@@ -1,8 +1,11 @@
 import type { FailureKind } from '../../types'
 
 const QUOTA_PATTERN = /usage limit|rate limit|quota|too many requests|\b429\b/i
+// 403 and the login-required family belong here, not in `other`: an entitlement refusal
+// (revoked seat, un-entitled free tier) is fixed by signing in, and the router must skip the
+// engine instead of failing the job on it.
 const AUTH_PATTERN =
-  /\b401\b|unauthorized|invalid credentials|not logged in|token revoked|authentication/i
+  /\b401\b|\b403\b|unauthorized|invalid credentials|not logged in|login[_ ]required|requires login|token revoked|authentication/i
 
 // Quota wins when both match: exhaustion responses often carry auth-flavored wording,
 // and cooldown-this-engine is the actionable routing signal (re-login wouldn't help).

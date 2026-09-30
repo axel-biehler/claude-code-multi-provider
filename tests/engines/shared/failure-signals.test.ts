@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { parseRetryAt } from '../../../src/engines/shared/failure-signals'
+import { classifyFailureText, parseRetryAt } from '../../../src/engines/shared/failure-signals'
 
 describe('parseRetryAt', () => {
   const nowMs = 1_700_000_000_000
@@ -86,5 +86,37 @@ describe('parseRetryAt', () => {
 
     // Assert
     expect(retryAtMs).toBeUndefined()
+  })
+})
+
+describe('classifyFailureText', () => {
+  test.each([
+    ['a 401 response', 'request failed with 401'],
+    ['a 403 entitlement refusal', '{"statusCode":403,"message":"free tier can only be used from within OpenCode"}'],
+    ['an OAuth login_required code', 'auth.login_required: OAuth provider "managed:kimi-code"'],
+    ['a requires-login sentence', 'this provider requires login before it can be used'],
+    ['a revoked token', 'token revoked'],
+  ])('classifies %s as auth', (_label, text) => {
+    // Arrange + Act + Assert
+    expect(classifyFailureText(text)).toBe('auth')
+  })
+
+  test('classifies a rate-limit message as quota', () => {
+    expect(classifyFailureText('429 too many requests')).toBe('quota')
+  })
+
+  test('prefers quota over auth when a response carries both signals', () => {
+    // Arrange: exhaustion responses often arrive with auth-flavored wording.
+    const text = 'HTTP 403: usage limit reached for this account'
+
+    // Act
+    const kind = classifyFailureText(text)
+
+    // Assert
+    expect(kind).toBe('quota')
+  })
+
+  test('leaves an ordinary failure as other', () => {
+    expect(classifyFailureText('TypeError: undefined is not a function')).toBe('other')
   })
 })
